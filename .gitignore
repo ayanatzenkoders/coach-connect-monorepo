@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# Secrets: never commit real env files
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+coverage/
+npm-debug.log*
+
+# Editors
+.idea/
+.vscode/

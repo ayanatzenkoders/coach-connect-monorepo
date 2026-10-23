@@ -1,0 +1,17 @@
+# Local development database. Start with: docker compose up -d
+services:
+  postgres:
+    image: postgres:16
+    container_name: coachconnect-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: coach
+      POSTGRES_PASSWORD: coach_dev_password
+      POSTGRES_DB: coachconnect
+    ports:
+      - "5432:5432"
+    volumes:
+      - coachconnect-pgdata:/var/lib/postgresql/data
+
+volumes:
+  coachconnect-pgdata:
