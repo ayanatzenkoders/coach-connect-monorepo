@@ -69,10 +69,14 @@ Then once: `DATABASE_URL=postgresql://coach:coach_dev_password@localhost:5432/co
 | App stuck on splash, red "required entitlement isn't present" | Keychain needs a SIGNED app. Do not build the simulator app with `CODE_SIGNING_ALLOWED=NO`; use `CODE_SIGN_IDENTITY="-" CODE_SIGNING_ALLOWED=YES` (normal Xcode/`npm run ios` builds are already signed). The app now also falls back to signed-out instead of hanging if Keychain fails. |
 | Next.js 16 template: `cacheComponents` / `partialPrefetching` in `next.config.ts` | Removed: they need a Node server, but production is a static export. Also read `node_modules/next/dist/docs/` before using Next APIs; this version differs from older tutorials. |
 | `vitest` (admin) fails with "Cannot find package 'vite'" | Vitest 5 needs `vite` installed next to it (`npm i -D vite`). |
+| iOS simulator swallows typing in a password field (only 1 character arrives) | iOS AutoFill suggestion bubble (e.g. an old saved email) sits on top of the field. Tap its "x" to dismiss, then type. Real users just ignore it; not an app bug. |
 | Hidden input loses focus after an error | Never call `.focus()` while the input is `editable={false}`. Refocus in an effect once `busy` is false (VerifyEmailScreen). |
 | Simulator ignores taps / screen looks stale | Usually a stuck session after a first launch or Metro disconnect ("not responding for 60 seconds" in the Metro log). Terminate and relaunch the app (`xcrun simctl terminate/launch <device> org.reactjs.native.example.CoachConnect`). Capture exact frames with `xcrun simctl io <device> screenshot file.png`. |
 | iOS "Save Password?" dialog appears after login in the simulator | Normal iOS autofill prompt (the password field has `textContentType="password"`). Tap "Not Now". It blocks taps until dismissed. |
 | iOS simulator screenshots / taps seem to lag | The UI updates a moment after a tap; wait ~1-2 s before judging a screen. |
+| Forgot-password email field swallows typing in the simulator | Field had `textContentType="username"` so iOS offered saved logins. Use `emailAddress`. |
+| Script run with `tsx` fails env validation / Nest DI | `tsx` has no decorator metadata and passes env numbers as text. Env numbers use explicit `@Type(() => Number)`, and `scripts/send-test-mail.ts` builds `MailerService` by hand instead of booting Nest. |
+| `SMTP_SECURE=false` behaved as true | Text "false" is truthy; the setting is read from the raw value (`'true'` only). Covered by a unit test. |
 | `backend/src/generated/` missing after clone | It is generated, not committed: `npm run prisma:generate` (also runs on `npm install`). |
 
 ---
@@ -276,23 +280,53 @@ A valid signature only proves the token was issued. To make logout and bans effe
 | `GET /auth/me` | any token | Profile + subscription + `canCall`. |
 | `POST /auth/email/send-code` | any mobile token | Emails a new 6-digit code (10 min). 429 `CODE_COOLDOWN` + `retryAfterSeconds` if asked within 60 s. 409 `ALREADY_VERIFIED`. |
 | `POST /auth/email/verify` `{code}` | any mobile token | 200 `{emailVerified:true}`. 400 `INVALID_CODE` (+`attemptsLeft`), `CODE_EXPIRED`, `CODE_LOCKED` (5 wrong guesses). |
+| `POST /auth/password/forgot` `{email}` | public | Step 1. Emails a 6-digit reset code. **Unknown email -> 404 `ACCOUNT_NOT_FOUND`** (product decision: the app then offers "Create an account"; trade-off: anyone can check whether an email has an account, limited by the 10/min throttle). Inside the 60 s cooldown it answers 200 with the seconds left and sends nothing. Mail failure -> 503 `EMAIL_SEND_FAILED` and the code is retired, so retrying works at once. Mobile users only (staff skipped). |
+| `POST /auth/password/verify-code` `{email, code}` | public | Step 2. Right code -> `{resetToken, expiresInSeconds}` (10 min). Wrong/expired/locked -> 400 `INVALID_CODE` (+`attemptsLeft`), `CODE_EXPIRED`, `CODE_LOCKED`. |
+| `POST /auth/password/reset` `{resetToken, newPassword}` | public | Step 3. Sets the password, **signs out every device** (`PASSWORD_CHANGED`), marks the email verified, writes an audit row. Bad/expired/used token -> 400 `RESET_TOKEN_INVALID`. |
 | `POST /admin/auth/login` | public | SUPPORT/ADMIN only. Issues an `admin`-audience token. |
 | `GET /admin/users/:id` | SUPPORT, ADMIN | Read-only user detail. |
 | `POST /admin/users/:id/ban`, `/unban` | ADMIN only | See Section 7. |
-| `GET /people?kind=coaches\|members&limit=` | any logged-in mobile user | Hides yourself, banned/deleted, blocked (both directions), unapproved coaches. Returns no email. Returns `{items, total}`. |
+| `GET /people?kind=coaches\|members&q=&specialty=&available=&cursor=&limit=` | any logged-in mobile user | Hides yourself, banned/deleted, blocked (both directions), unapproved coaches. Returns no email. `q` = part of a name, any case. `specialty` / `available=true` apply to coaches only. Returns `{items, total, nextCursor}`; send `nextCursor` back as `cursor` for the next page (`null` = last page). Bad cursor -> 400. |
 | `GET /health` | public | |
 
 Rate limit: 120 req/min per IP globally, **10/min on login/register/refresh** (HTTP 429). (Per-IP only for now; add per-account lockout later.)
 
 ---
 
+### 5.5 Forgot / reset password (3 steps, 3 screens)
+- Built on the shared `OneTimeCodeService` (`auth/one-time-code.service.ts`): `cooldownLeft`, `issue`, `retire`, `verifyAndRun`. Email verification and password reset use it with different `purpose` values, so a code for one never works for the other (tested).
+- Flow: Sign in -> "Forgot password?" (under the password field) -> `ForgotPasswordScreen` (email; unknown email shows "We could not find an account" + "Create an account", which opens Register with the email filled in) -> `ResetCodeScreen` (6 boxes; a Verify button appears only once all 6 digits are typed) -> `NewPasswordScreen` (checklist) -> Sign in with a green "Password updated" notice.
+- **Why a reset token between step 2 and 3:** step 2 consumes the code and returns a short JWT (`aud: password-reset`, signed with a secret derived from the access secret, 10 min). It carries a fingerprint (`pwv`) of the current password hash, so after the password changes the token is dead: single use without a table. Step 3 needs only the token, never the code again.
+- If the token expires while the user types the new password, the app returns to the Forgot screen with a toast.
+- Staff (Support/Admin) do not reset through the app.
+- No design existed for these screens; they follow the Verify email design. Ask the designer to review.
+
+### 5.6 Password rule
+8-128 characters with one lowercase letter, one uppercase letter and one number. One regex on the server (`auth/dto/password-rule.ts`, used by register and reset) mirrored by `mobile/src/auth/passwordRules.ts`, which feeds the live checklist (`PasswordChecklist`). Login does NOT apply the rule (older accounts must still sign in).
+
+### 5.7 Sending real email
+`MAIL_DRIVER` in `backend/.env` picks the sender (`mail/mailer.service.ts`):
+| Driver | When | Needs |
+|--------|------|-------|
+| `console` (default) | Local dev, tests: prints the email, so you read the code in the backend terminal | nothing |
+| `smtp` | Gmail App Password in dev, or any SMTP provider (Brevo, Mailtrap, ...) | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` |
+| `resend` | Production-friendly HTTP API | `RESEND_API_KEY`, `MAIL_FROM` on a domain verified at Resend |
+- Missing settings for the chosen driver stop the backend at start-up with a clear message; blank lines (`SMTP_PORT=`) count as unset.
+- Test the setup without the app: `cd backend && npm run mail:test -- you@example.com` (restart the backend after editing `.env`).
+- Templates live in `mail/templates.ts` (`codeEmail`, plain text + escaped HTML). The e2e config forces `MAIL_DRIVER=console`, so tests never send mail.
+
 ### 5.4 Email verification (6-digit code)
 - **Sign-up** creates the user and emails a code. The app then shows "Check your email" until the code is entered; the account exists either way, so the back arrow just signs out and the user can verify later.
 - The code is random (`crypto.randomInt`), valid 10 minutes, and stored only as an **HMAC** (hash with our secret). A plain hash of a 6-digit number could be reversed instantly if the database leaked; the HMAC cannot without the secret.
 - **Limits:** 5 wrong guesses lock the code (counted atomically, so parallel guesses can't dodge it); one email per minute per user; routes are rate-limited.
 - A new code retires the old one, so only one is ever valid.
-- **Mailer:** `mail/mailer.service.ts` only PRINTS emails in the backend console in development (and tests read `outbox`). Before launch swap `send()` for an HTTP email provider; nothing else changes. **To test sign-up locally, read the code from the backend terminal.**
+- **Mailer:** see section 5.7 (console in dev by default; SMTP or Resend when configured). If sending fails, the code is retired and the API answers 503 `EMAIL_SEND_FAILED`; sign-up itself still succeeds and the user can press resend.
 - The mobile app gates on `user.emailVerified`. The API itself does not yet refuse unverified users (decide later if calls should require a verified email).
+
+### 5.8 People search and paging
+- **Search** = `name ILIKE '%text%'`. A normal index cannot serve "text in the middle", so migration `20261026150000_people_name_search` adds a **trigram GIN index** (`pg_trgm`, partial: only non-deleted users). The user's own `%` and `_` are escaped so they are plain letters (a test caught this).
+- **Cursor paging** (keyset): the cursor is the last row's `(name, id)`; the next page asks for rows after it. Unlike `OFFSET`, page 50 is as fast as page 1 and nobody is repeated or skipped if the list changes between requests. We fetch `limit + 1` rows to know whether another page exists.
+- `total` counts everything matching the filters, not just the page.
 
 ## 6. RBAC (role-based access control)
 
@@ -351,10 +385,12 @@ Idempotent: banning twice does nothing extra (and writes one audit row). Reason 
 | `src/auth/tokenStorage.ts` | Tokens + device id in Keychain/Keystore (`AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY`: readable on a locked phone for incoming calls, never backed up). |
 | `src/auth/authStore.ts` | Zustand store: `status` (booting / signedOut / signedIn / offline), `restore()` on app open (valid token -> in; expired -> silent refresh; revoked/banned -> out with a reason; no network -> `offline`, tokens kept), `signIn`, `register`, `signOut` (works offline). |
 | `src/theme/` | Design tokens (colors, spacing, text) copied from the UI design. Screens never use raw colors. |
+| `src/components/CodeInput.tsx`, `ResendRow.tsx`, `src/hooks/useCountdown.ts` | Six-box code entry (one hidden real input), the "Resend in 0:42" row, and the countdown hook; shared by Verify email and the reset-code screen. |
 | `src/components/` | `Button`, `TextField`, `Logo` (the "C inside C" mark drawn with SVG: two open arcs facing each other with a dot between them), `icons` (back, check, dot). Shared by all screens. |
 | `src/screens/` | One file per screen (`SignInScreen` so far). Screens take callbacks as props; wiring to the backend is done outside the screen. |
-Screens so far: `SplashScreen` (green, logo tile, determinate progress bar: climbs to 85% while waiting, fills when ready, then hands over), `SignInScreen`, `RegisterScreen`, `VerifyEmailScreen` (6 boxes over ONE hidden input so paste/keypad/iOS autofill work; auto-submits at 6 digits; resend countdown), `OfflineScreen`, `HomeScreen` (temporary: shows the real `/auth/me` answer and has a dev button to spoil the token and test refresh). `App.tsx` picks the screen from `authStore.status`.
+Screens so far: `SplashScreen` (green, logo tile, determinate progress bar: climbs to 85% while waiting, fills when ready, then hands over), `SignInScreen`, `RegisterScreen`, `CodeEntryScreen` (shared by `VerifyEmailScreen` and `ResetCodeScreen`: 6 boxes over ONE hidden input so paste/keypad/iOS autofill work; a Verify button shows once 6 digits are typed; resend countdown), `ForgotPasswordScreen`, `NewPasswordScreen`, `OfflineScreen`, `HomeScreen` (temporary: shows the real `/auth/me` answer and has a dev button to spoil the token and test refresh). `App.tsx` picks the screen from `authStore.status`.
 Native launch screens (iOS `LaunchScreen.storyboard`, Android `windowBackground`) are green too, so there is no white flash before the JS splash.
+**Errors as toasts:** server errors go through `toast/toastStore.ts` (`showApiError`) and `ToastHost` (mounted once in `App.tsx`); screens keep only field-level hints inline. Admin web still uses an inline banner. Shared test helpers: `mobile/test-utils`.
 Tests: `npx jest` in `mobile/`. Testing gotchas: `jest.setup.js` mocks `react-native-svg`; a timer that re-arms itself after each render (countdowns) needs one `act` per second in tests; mock `react-native-safe-area-context` (its provider renders nothing in tests); in `act`, effects start only after the first block ends, so wait in a second `act`. Fonts (Bricolage Grotesque, Hanken Grotesk) are not bundled yet; system font is used.
 
 **Run it on the iOS simulator:** (1) backend running on port 3000, (2) `cd mobile && npx react-native start`, (3) `npm run ios` (or build in Xcode and open the app). Log in as `sara@coachconnect.dev` / `Password123!`. Placeholder to change before release: the iOS bundle id is still the template's `org.reactjs.native.example.CoachConnect` and Android's is `com.coachconnect`.
@@ -391,7 +427,7 @@ Source of truth: `mobile/scripts/generate-icons.mjs` (draws the "C inside C" mar
 See `Detailed Plan` section A3 (D1-D9): group size 6 vs the PRD's 4, who can add people, subscription for added members, summaries for member-to-member calls, when a coach call ends, chat gating.
 
 ## 12. What's next
-Phase 1 remaining: People step 1.4b (name search with trigram index, specialty filter, `availableOnly`, cursor pagination); Google/Apple sign-in, email verification and password reset (HTTP email provider needed). Then Phase 2 (mobile shell) and Phase 3 (calls).
+Phase 1 remaining: Google/Apple sign-in; change password (B4); admin cookie login + CSRF (B5) and 2FA (B6); real email provider configured by the owner (section 5.7). Then Phase 2 (mobile shell) and Phase 3 (calls).
 
 ## 13. Changelog
 - **2026-10-23, Phase 0:** monorepo, RN deps swapped for LiveKit stack, Nest 12 scaffold, local Postgres 16.
@@ -405,3 +441,7 @@ Phase 1 remaining: People step 1.4b (name search with trigram index, specialty f
 - **2026-10-26, Auth flow (batch 2):** new splash (green, SVG "C inside C" logo, determinate bar) + green native launch screens; email verification backend (mailer, `one_time_codes`, HMAC codes, attempt limit, cooldown); Create account and Verify email screens; Root switch; backend 41 tests, mobile 63 tests.
 - **2026-10-26, verified on the simulator:** splash, Sign in, Create account (live password tick), Verify email (wrong code -> "4 tries left", right code -> Home) against the real backend; fixed refocus bug; 64 mobile + 41 backend tests.
 - **2026-10-26, admin web started:** Next.js 16 scaffold (static export in production, dev proxy), sign-in page (design A1) and dashboard shell (A2) connected to the real backend; session helper with logout; 8 admin tests. App icon added for iOS and Android. Port-in-use fix documented.
+- **2026-10-27, forgot / reset password:** shared `OneTimeCodeService` (refactor, tests stayed green), `POST /auth/password/forgot` + `/reset` (no account leak, signs out all devices), mobile Forgot + Reset screens with shared CodeInput/ResendRow; verified end to end on the simulator. Backend 55 integration + 7 unit tests, mobile 79 tests.
+- **2026-10-26, auth polish + real email:** errors shown as toasts in the app; password rule (lowercase + uppercase + number) with live checklist; "Open mail app" removed and Verify button appears at 6 digits; "Forgot password?" moved under the password field; reset is now 3 steps (email -> code -> new password) with a single-use reset token; unknown email says so and offers "Create an account"; mailer drivers `console`/`smtp`/`resend` with start-up validation and `npm run mail:test`. Verified on the simulator end to end. Backend 68 integration + 20 unit tests, mobile 120 tests.
+
+- **2026-10-26, People search (step 1.4b):** `q`, `specialty`, `available`, cursor paging, trigram index; separate verification/reset email templates; mail on port 465 note. Backend 73 integration + 21 unit tests.
