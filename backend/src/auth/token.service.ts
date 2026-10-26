@@ -16,12 +16,40 @@ export interface AccessPayload {
 @Injectable()
 export class TokenService {
   readonly accessTtlSeconds: number;
+  /** A DIFFERENT secret from the access-token one, so neither kind of token can pass as the other. */
+  private readonly resetSecret: string;
 
   constructor(
     private readonly jwt: JwtService,
     config: ConfigService,
   ) {
     this.accessTtlSeconds = config.getOrThrow<number>('ACCESS_TOKEN_TTL_SECONDS');
+    this.resetSecret = createHash('sha256').update(`${config.getOrThrow<string>('JWT_ACCESS_SECRET')}:password-reset`).digest('hex');
+  }
+
+  // ───── Reset token: proves "the emailed code was right", valid for the final step only ─────
+
+  static readonly RESET_TTL_SECONDS = 10 * 60;
+
+  /**
+   * `pwv` is a fingerprint of the user's CURRENT password hash. Once the password changes the
+   * fingerprint no longer matches, so a reset token works exactly once.
+   */
+  signResetToken(userId: string, pwv: string): Promise<string> {
+    return this.jwt.signAsync(
+      { pwv },
+      { subject: userId, issuer: JWT_ISSUER, audience: 'password-reset', expiresIn: TokenService.RESET_TTL_SECONDS, secret: this.resetSecret },
+    );
+  }
+
+  /** Throws if the token is forged, expired, or made for another purpose. */
+  verifyResetToken(token: string): Promise<{ sub: string; pwv: string }> {
+    return this.jwt.verifyAsync<{ sub: string; pwv: string }>(token, { issuer: JWT_ISSUER, audience: 'password-reset', secret: this.resetSecret });
+  }
+
+  /** Short fingerprint of a password hash (never the hash itself). */
+  passwordFingerprint(passwordHash: string | null): string {
+    return createHash('sha256').update(passwordHash ?? '').digest('hex').slice(0, 16);
   }
 
   // ───── Access token: a signed JWT, short-lived, checked on every request ─────

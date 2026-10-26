@@ -139,3 +139,32 @@ describe('Auth: register, login, token lifecycle', () => {
     expect(res.body.user.role).toBe('COACH');
   });
 });
+
+describe('Password rule at sign-up', () => {
+  let app: INestApplication;
+  let prisma: PrismaService;
+  beforeAll(async () => {
+    app = await createApp();
+    prisma = app.get(PrismaService);
+  });
+  afterAll(() => app.close());
+  beforeEach(() => resetDb(prisma));
+
+  const register = (password: string, email = 'rule@example.com') =>
+    api(app).post('/auth/register').send({ email, password, name: 'Rule', deviceId: 'device-aaaaaaaa' });
+
+  it.each([
+    ['no uppercase letter', 'alllowercase1'],
+    ['no lowercase letter', 'ALLUPPERCASE1'],
+    ['no number', 'NoNumbersHere'],
+    ['only 7 characters', 'Abcde1f'],
+  ])('refuses a password with %s', async (_label, pw) => {
+    const res = await register(pw);
+    expect(res.status).toBe(400);
+    expect(res.body.message[0]).toMatch(/lowercase letter, one uppercase letter and one number/);
+  });
+
+  it('accepts a password with a lowercase letter, an uppercase letter and a number', async () => {
+    expect((await register('Valid-pass-1')).status).toBe(201);
+  });
+});
