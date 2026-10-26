@@ -1,5 +1,6 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
 import { Transform } from 'class-transformer';
+import { PASSWORD_PATTERN, PASSWORD_RULE_MESSAGE } from './password-rule.js';
 
 const normalizeEmail = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim().toLowerCase() : value;
@@ -8,8 +9,9 @@ export class RegisterDto {
   @Transform(normalizeEmail) @IsEmail() @MaxLength(254)
   email!: string;
 
-  // 8 minimum; 128 max stops someone sending a 10 MB "password" to burn server CPU.
-  @IsString() @MinLength(8) @MaxLength(128)
+  // 8-128 characters (128 stops someone sending a 10 MB "password" to burn server CPU),
+  // with a lowercase letter, an uppercase letter and a number.
+  @IsString() @Matches(PASSWORD_PATTERN, { message: PASSWORD_RULE_MESSAGE })
   password!: string;
 
   @IsString() @Length(1, 80)
@@ -45,4 +47,26 @@ export class RefreshDto {
 export class VerifyEmailDto {
   @Matches(/^\d{6}$/, { message: 'code must be 6 digits' })
   code!: string;
+}
+
+export class ForgotPasswordDto {
+  @Transform(normalizeEmail) @IsEmail() @MaxLength(254)
+  email!: string;
+}
+
+export class VerifyResetCodeDto {
+  @Transform(normalizeEmail) @IsEmail() @MaxLength(254)
+  email!: string;
+
+  @Matches(/^\d{6}$/, { message: 'code must be 6 digits' })
+  code!: string;
+}
+
+export class ResetPasswordDto {
+  /** The short-lived token returned by verify-code. It proves the emailed code was correct. */
+  @IsString() @IsNotEmpty() @MaxLength(2000)
+  resetToken!: string;
+
+  @IsString() @Matches(PASSWORD_PATTERN, { message: PASSWORD_RULE_MESSAGE })
+  newPassword!: string;
 }

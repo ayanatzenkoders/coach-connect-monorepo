@@ -3,8 +3,9 @@ import { Throttle } from '@nestjs/throttler';
 import type { AuthUser } from '../common/auth-user.js';
 import { Audience, CurrentUser, Public } from '../common/decorators/index.js';
 import { AuthService } from './auth.service.js';
-import { LoginDto, RefreshDto, RegisterDto, VerifyEmailDto } from './dto/auth.dto.js';
+import { ForgotPasswordDto, LoginDto, RefreshDto, RegisterDto, ResetPasswordDto, VerifyEmailDto, VerifyResetCodeDto } from './dto/auth.dto.js';
 import { EmailVerificationService } from './email-verification.service.js';
+import { PasswordResetService } from './password-reset.service.js';
 
 // Brute-force protection: 10 attempts per minute per IP on anything that checks a secret.
 const AUTH_LIMIT = { default: { limit: 10, ttl: 60_000 } };
@@ -14,6 +15,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly emailVerification: EmailVerificationService,
+    private readonly passwordReset: PasswordResetService,
   ) {}
 
   @Public() @Throttle(AUTH_LIMIT)
@@ -58,5 +60,26 @@ export class AuthController {
   @Post('email/verify')
   verifyEmail(@CurrentUser() user: AuthUser, @Body() dto: VerifyEmailDto) {
     return this.emailVerification.verify(user.id, dto.code);
+  }
+
+  /** "Forgot password", step 1: email me a code. 404 ACCOUNT_NOT_FOUND if there is no such account. */
+  @Public() @Throttle(AUTH_LIMIT) @HttpCode(200)
+  @Post('password/forgot')
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.passwordReset.requestCode(dto.email);
+  }
+
+  /** Step 2: check the emailed code. Returns a short-lived `resetToken` for step 3. */
+  @Public() @Throttle(AUTH_LIMIT) @HttpCode(200)
+  @Post('password/verify-code')
+  verifyResetCode(@Body() dto: VerifyResetCodeDto) {
+    return this.passwordReset.verifyCode(dto.email, dto.code);
+  }
+
+  /** Step 3: reset token + new password. Signs out every device on success. */
+  @Public() @Throttle(AUTH_LIMIT) @HttpCode(200)
+  @Post('password/reset')
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.passwordReset.reset(dto.resetToken, dto.newPassword);
   }
 }

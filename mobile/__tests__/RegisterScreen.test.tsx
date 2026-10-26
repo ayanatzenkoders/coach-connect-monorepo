@@ -1,82 +1,82 @@
 import React from 'react';
-import ReactTestRenderer, { ReactTestInstance } from 'react-test-renderer';
 import { ApiError } from '../src/api/client';
 import { RegisterScreen } from '../src/screens/RegisterScreen';
+import { allText, byLabel, clearToast, lastToast, press, render, typeInto } from '../test-utils';
 
-type Tree = ReactTestRenderer.ReactTestRenderer;
-const byLabel = (tree: Tree, label: string): ReactTestInstance =>
-  tree.root.find(
-    (n) => n.props.accessibilityLabel === label && (typeof n.props.onPress === 'function' || typeof n.props.onChangeText === 'function'),
-  );
-const allText = (tree: Tree) => tree.root.findAll((n) => (n.type as unknown) === 'Text').map((n) => [n.props.children].flat().join(''));
-const type = (tree: Tree, label: string, value: string) => ReactTestRenderer.act(() => byLabel(tree, label).props.onChangeText(value));
-const press = (tree: Tree, label: string) => ReactTestRenderer.act(() => byLabel(tree, label).props.onPress());
-
-async function render() {
+async function setup(initialEmail?: string) {
   const onRegister = jest.fn().mockResolvedValue(undefined);
   const onBack = jest.fn();
-  let tree!: Tree;
-  await ReactTestRenderer.act(() => {
-    tree = ReactTestRenderer.create(<RegisterScreen onRegister={onRegister} onBack={onBack} />);
-  });
+  const tree = await render(<RegisterScreen onRegister={onRegister} onBack={onBack} initialEmail={initialEmail} />);
   return { tree, onRegister, onBack };
 }
-async function fillValid(tree: Tree) {
-  await type(tree, 'Full name', '  Sara Malik ');
-  await type(tree, 'Email', ' sara@coachconnect.dev ');
-  await type(tree, 'Password', 'longenough1');
+async function fillValid(tree: Awaited<ReturnType<typeof render>>, password = 'Longenough1') {
+  await typeInto(tree, 'Full name', '  Sara Malik ');
+  await typeInto(tree, 'Email', ' sara@coachconnect.dev ');
+  await typeInto(tree, 'Password', password);
 }
 
 describe('RegisterScreen', () => {
-  it('shows the title and all three fields', async () => {
-    const { tree } = await render();
+  beforeEach(clearToast);
+
+  it('shows the title, three fields and the four password rules', async () => {
+    const { tree } = await setup();
     expect(allText(tree)).toContain('Create your account');
     for (const label of ['Full name', 'Email', 'Password', 'Create account']) expect(byLabel(tree, label)).toBeTruthy();
-  });
-
-  it('blocks submit and lists what is missing', async () => {
-    const { tree, onRegister } = await render();
-    await press(tree, 'Create account');
-    expect(onRegister).not.toHaveBeenCalled();
     expect(allText(tree)).toEqual(
-      expect.arrayContaining(['Enter your name.', 'Enter a valid email address.', 'Use at least 8 characters.']),
+      expect.arrayContaining(['At least 8 characters', 'One lowercase letter', 'One uppercase letter', 'One number']),
     );
   });
 
-  it('rejects a 7-character password', async () => {
-    const { tree, onRegister } = await render();
-    await type(tree, 'Full name', 'Sara');
-    await type(tree, 'Email', 'sara@coachconnect.dev');
-    await type(tree, 'Password', '1234567');
+  it('starts with the email passed in (from "Forgot password: no account")', async () => {
+    const { tree } = await setup('ghost@example.com');
+    expect(byLabel(tree, 'Email').props.value).toBe('ghost@example.com');
+  });
+
+  it('blocks submit and lists what is missing', async () => {
+    const { tree, onRegister } = await setup();
     await press(tree, 'Create account');
     expect(onRegister).not.toHaveBeenCalled();
+    expect(allText(tree)).toEqual(expect.arrayContaining(['Enter your name.', 'Enter a valid email address.']));
   });
 
-  it('submits trimmed name and email', async () => {
-    const { tree, onRegister } = await render();
+  it.each([
+    ['no uppercase letter', 'alllowercase1'],
+    ['no lowercase letter', 'ALLUPPERCASE1'],
+    ['no number', 'NoNumbersHere'],
+    ['only 7 characters', 'Abcde1f'],
+  ])('refuses a password with %s', async (_label, pw) => {
+    const { tree, onRegister } = await setup();
+    await fillValid(tree, pw);
+    await press(tree, 'Create account');
+    expect(onRegister).not.toHaveBeenCalled();
+    expect(allText(tree)).toContain('Your password does not meet all the requirements below.');
+  });
+
+  it('submits trimmed name and email with a strong password', async () => {
+    const { tree, onRegister } = await setup();
     await fillValid(tree);
     await press(tree, 'Create account');
-    expect(onRegister).toHaveBeenCalledWith('Sara Malik', 'sara@coachconnect.dev', 'longenough1');
+    expect(onRegister).toHaveBeenCalledWith('Sara Malik', 'sara@coachconnect.dev', 'Longenough1');
   });
 
-  it('shows "email taken" under the email field', async () => {
-    const { tree, onRegister } = await render();
+  it('shows "email already exists" (from the server) as a toast', async () => {
+    const { tree, onRegister } = await setup();
     onRegister.mockRejectedValue(new ApiError(409, 'EMAIL_TAKEN', 'An account with this email already exists.'));
     await fillValid(tree);
     await press(tree, 'Create account');
-    expect(allText(tree)).toContain('An account with this email already exists.');
+    expect(lastToast()).toMatchObject({ message: 'An account with this email already exists.', tone: 'error' });
   });
 
-  it('shows other failures (e.g. no internet) in a banner', async () => {
-    const { tree, onRegister } = await render();
+  it('shows no-internet as a toast', async () => {
+    const { tree, onRegister } = await setup();
     onRegister.mockRejectedValue(new ApiError(0, 'NETWORK_ERROR', 'Cannot reach the server.'));
     await fillValid(tree);
     await press(tree, 'Create account');
-    expect(allText(tree)).toContain('Cannot reach the server.');
+    expect(lastToast()?.message).toBe('Cannot reach the server.');
   });
 
   it('goes back to sign in', async () => {
-    const { tree, onBack } = await render();
+    const { tree, onBack } = await setup();
     await press(tree, 'Back to sign in');
     expect(onBack).toHaveBeenCalled();
   });

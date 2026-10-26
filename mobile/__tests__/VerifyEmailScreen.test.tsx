@@ -1,52 +1,40 @@
 import React from 'react';
+import ReactTestRenderer from 'react-test-renderer';
 import { TextInput } from 'react-native';
-import ReactTestRenderer, { ReactTestInstance } from 'react-test-renderer';
 import { ApiError } from '../src/api/client';
 import { VerifyEmailScreen } from '../src/screens/VerifyEmailScreen';
+import { allText, byLabel, clearToast, has, lastToast, press, render, tick, typeInto } from '../test-utils';
 
-type Tree = ReactTestRenderer.ReactTestRenderer;
-const byLabel = (tree: Tree, label: string): ReactTestInstance =>
-  tree.root.find(
-    (n) => n.props.accessibilityLabel === label && (typeof n.props.onPress === 'function' || typeof n.props.onChangeText === 'function'),
-  );
-const allText = (tree: Tree) => tree.root.findAll((n) => (n.type as unknown) === 'Text').map((n) => [n.props.children].flat().join(''));
-const typeCode = (tree: Tree, v: string) => ReactTestRenderer.act(async () => byLabel(tree, 'Verification code').props.onChangeText(v));
-
-async function render(overrides: Partial<React.ComponentProps<typeof VerifyEmailScreen>> = {}) {
+async function setup(overrides: Partial<React.ComponentProps<typeof VerifyEmailScreen>> = {}) {
   const mocks = {
     onSendCode: jest.fn().mockResolvedValue({ resendAfterSeconds: 60 }),
     onVerify: jest.fn().mockResolvedValue(undefined),
     onBack: jest.fn(),
   };
-  const props = { email: 'sara@coachconnect.dev', ...mocks, ...overrides };
-  let tree!: Tree;
-  await ReactTestRenderer.act(async () => {
-    tree = ReactTestRenderer.create(<VerifyEmailScreen {...props} />);
-  });
-  return { tree, ...mocks, onSendCode: props.onSendCode as jest.Mock };
+  const tree = await render(<VerifyEmailScreen email="sara@coachconnect.dev" {...mocks} {...overrides} />);
+  return { tree, ...mocks };
 }
 
 describe('VerifyEmailScreen', () => {
-  beforeEach(() => jest.useFakeTimers());
+  beforeEach(() => {
+    jest.useFakeTimers();
+    clearToast();
+  });
   afterEach(() => jest.useRealTimers());
 
   it('shows the email address and asks for a code once when it opens', async () => {
-    const { tree, onSendCode } = await render();
+    const { tree, onSendCode } = await setup();
     expect(allText(tree).join(' ')).toContain('sara@coachconnect.dev');
     expect(onSendCode).toHaveBeenCalledTimes(1);
   });
 
-  /** Let `seconds` pass one second at a time, like a real clock (each tick re-renders and sets the next timer). */
-  const tick = async (seconds: number) => {
-    for (let i = 0; i < seconds; i++) {
-      await ReactTestRenderer.act(async () => {
-        jest.advanceTimersByTime(1000);
-      });
-    }
-  };
+  it('has NO "Open mail app" button', async () => {
+    const { tree } = await setup();
+    expect(allText(tree)).not.toContain('Open mail app');
+  });
 
   it('counts down before the code can be re-sent, then allows it', async () => {
-    const { tree } = await render();
+    const { tree } = await setup();
     expect(allText(tree)).toContain('Resend in 1:00');
     await tick(3);
     expect(allText(tree)).toContain('Resend in 0:57');
@@ -54,57 +42,65 @@ describe('VerifyEmailScreen', () => {
     expect(allText(tree)).toContain('Resend code');
   });
 
-  it('uses the server wait time when a code was sent a moment ago', async () => {
-    const { tree } = await render({
-      onSendCode: jest.fn().mockRejectedValue(new ApiError(429, 'CODE_COOLDOWN', 'wait', { retryAfterSeconds: 42 })),
-    });
+  it('uses the server wait time when a code was sent a moment ago (and does not show an error)', async () => {
+    const { tree } = await setup({ onSendCode: jest.fn().mockRejectedValue(new ApiError(429, 'CODE_COOLDOWN', 'wait', { retryAfterSeconds: 42 })) });
     expect(allText(tree)).toContain('Resend in 0:42');
+    expect(lastToast()).toBeNull();
   });
 
-  it('submits automatically after the sixth digit, ignoring non-digits', async () => {
-    const { tree, onVerify } = await render();
-    await typeCode(tree, '4821');
+  it('shows a toast if the code cannot be sent (e.g. the email service is down)', async () => {
+    await setup({ onSendCode: jest.fn().mockRejectedValue(new ApiError(503, 'EMAIL_SEND_FAILED', 'We could not send the email right now.')) });
+    expect(lastToast()?.message).toBe('We could not send the email right now.');
+  });
+
+  it('shows the Verify button ONLY once all six digits are typed, and does not submit by itself', async () => {
+    const { tree, onVerify } = await setup();
+    expect(has(tree, 'Verify')).toBe(false);
+    await typeInto(tree, 'Verification code', '4821');
+    expect(has(tree, 'Verify')).toBe(false);
+    await typeInto(tree, 'Verification code', '48 2-1 9 0');
+    expect(has(tree, 'Verify')).toBe(true);
     expect(onVerify).not.toHaveBeenCalled();
-    await typeCode(tree, '48 2-1 9 0');
+  });
+
+  it('pressing Verify sends the code', async () => {
+    const { tree, onVerify } = await setup();
+    await typeInto(tree, 'Verification code', '482190');
+    await press(tree, 'Verify');
     expect(onVerify).toHaveBeenCalledWith('482190');
   });
 
-  it('shows how many tries are left after a wrong code and clears the boxes', async () => {
-    const { tree, onVerify } = await render();
+  it('a wrong code: toast with the tries left, boxes cleared, Verify hidden again', async () => {
+    const { tree, onVerify } = await setup();
     onVerify.mockRejectedValue(new ApiError(400, 'INVALID_CODE', 'That code is not correct.', { attemptsLeft: 4 }));
-    await typeCode(tree, '111111');
-    expect(allText(tree)).toContain('That code is not correct. 4 tries left.');
+    await typeInto(tree, 'Verification code', '111111');
+    await press(tree, 'Verify');
+    expect(lastToast()).toMatchObject({ message: 'That code is not correct. 4 tries left.', tone: 'error' });
     expect(byLabel(tree, 'Verification code').props.value).toBe('');
+    expect(has(tree, 'Verify')).toBe(false);
   });
 
   it('puts the cursor back in the code field after a wrong code', async () => {
-    const { tree, onVerify } = await render();
+    const { tree, onVerify } = await setup();
     onVerify.mockRejectedValue(new ApiError(400, 'INVALID_CODE', 'That code is not correct.', { attemptsLeft: 3 }));
-    // Replace the input's focus() with a spy. The ref points at the real input, which is how the screen calls it.
     const input = tree.root.findByType(TextInput).instance as { focus: () => void };
     const focus = jest.fn();
     input.focus = focus;
-    await typeCode(tree, '333333');
+    await typeInto(tree, 'Verification code', '333333');
+    await press(tree, 'Verify');
     expect(focus).toHaveBeenCalled();
   });
 
-  it('shows the server message when the code expired or is locked', async () => {
-    const { tree, onVerify } = await render();
+  it('shows "expired" and "locked" messages from the server as a toast', async () => {
+    const { tree, onVerify } = await setup();
     onVerify.mockRejectedValue(new ApiError(400, 'CODE_EXPIRED', 'That code has expired. Request a new one.'));
-    await typeCode(tree, '222222');
-    expect(allText(tree)).toContain('That code has expired. Request a new one.');
-  });
-
-  it('the Verify button asks for all six digits first', async () => {
-    const { tree, onVerify } = await render();
-    await typeCode(tree, '123');
-    await ReactTestRenderer.act(async () => byLabel(tree, 'Verify').props.onPress());
-    expect(onVerify).not.toHaveBeenCalled();
-    expect(allText(tree)).toContain('Enter the 6-digit code.');
+    await typeInto(tree, 'Verification code', '222222');
+    await press(tree, 'Verify');
+    expect(lastToast()?.message).toBe('That code has expired. Request a new one.');
   });
 
   it('the back arrow calls onBack', async () => {
-    const { tree, onBack } = await render();
+    const { tree, onBack } = await setup();
     await ReactTestRenderer.act(async () => byLabel(tree, 'Back').props.onPress());
     expect(onBack).toHaveBeenCalled();
   });
