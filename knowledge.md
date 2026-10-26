@@ -15,7 +15,7 @@ Related docs: `Requirement & Design/Coach Connect Detailed Plan.md` (what to bui
 |------|------|
 | `mobile/` | React Native CLI app (TypeScript). iOS + Android. |
 | `backend/` | NestJS API (TypeScript, ESM). Prisma + Postgres. |
-| `admin/` | Next.js admin panel (not created yet, Phase 9). |
+| `admin/` | Next.js admin panel (TypeScript). Sign-in + dashboard shell so far. |
 | `docker-compose.yml` | Local Postgres for people who use Docker. Bound to `127.0.0.1` only. |
 | `Requirement & Design/` | PRD, UI design export, implementation plans. |
 | `knowledge.md` | This file. |
@@ -63,7 +63,16 @@ Then once: `DATABASE_URL=postgresql://coach:coach_dev_password@localhost:5432/co
 | `zsh: command not found: psql -h ...` | zsh does not word-split a variable holding a command. Use a shell function, not a string variable. |
 | `curl -H $J` sends no JSON content type in zsh | Same reason. Quote headers inline: `-H "Content-Type: application/json"`. |
 | Nest 12 template uses **Vitest** (not Jest) and ESM | Imports need the `.js` suffix even in `.ts` files. Test globals work (`describe`, `it`). |
+| `EADDRINUSE: address already in use :::3000` (backend) or `:::8081` (Metro) | An earlier server is still running (often one started in a background session). Find it: `lsof -nP -iTCP:3000 -sTCP:LISTEN`, check the command, then `kill <pid>`. Do the same for 8081 (Metro) and 3001 (admin). Ports: backend 3000, admin 3001, Metro 8081. |
+| `pod install` after adding a native package (e.g. `react-native-svg`) | Required, then rebuild the iOS app. Metro hot reload only covers JavaScript. |
 | Times stored 5 h off in Postgres (UTC+5 machine) | Prisma sends dates as UTC text without an offset; a non-UTC connection stores the wrong instant. Fixed by `options: '-c timezone=UTC'` in `PrismaPg` (`prisma.service.ts`, `seed.ts`). Regression test: `test/timezone.e2e-spec.ts`. Rows written before the fix in a dev DB are shifted; `npx prisma migrate reset` clears them. |
+| App stuck on splash, red "required entitlement isn't present" | Keychain needs a SIGNED app. Do not build the simulator app with `CODE_SIGNING_ALLOWED=NO`; use `CODE_SIGN_IDENTITY="-" CODE_SIGNING_ALLOWED=YES` (normal Xcode/`npm run ios` builds are already signed). The app now also falls back to signed-out instead of hanging if Keychain fails. |
+| Next.js 16 template: `cacheComponents` / `partialPrefetching` in `next.config.ts` | Removed: they need a Node server, but production is a static export. Also read `node_modules/next/dist/docs/` before using Next APIs; this version differs from older tutorials. |
+| `vitest` (admin) fails with "Cannot find package 'vite'" | Vitest 5 needs `vite` installed next to it (`npm i -D vite`). |
+| Hidden input loses focus after an error | Never call `.focus()` while the input is `editable={false}`. Refocus in an effect once `busy` is false (VerifyEmailScreen). |
+| Simulator ignores taps / screen looks stale | Usually a stuck session after a first launch or Metro disconnect ("not responding for 60 seconds" in the Metro log). Terminate and relaunch the app (`xcrun simctl terminate/launch <device> org.reactjs.native.example.CoachConnect`). Capture exact frames with `xcrun simctl io <device> screenshot file.png`. |
+| iOS "Save Password?" dialog appears after login in the simulator | Normal iOS autofill prompt (the password field has `textContentType="password"`). Tap "Not Now". It blocks taps until dismissed. |
+| iOS simulator screenshots / taps seem to lag | The UI updates a moment after a tap; wait ~1-2 s before judging a screen. |
 | `backend/src/generated/` missing after clone | It is generated, not committed: `npm run prisma:generate` (also runs on `npm install`). |
 
 ---
@@ -115,6 +124,8 @@ Tables: `users`, `sessions`, `coach_profiles`, `subscriptions`, `blocks`, `push_
 Implemented in `backend/src/subscriptions/subscription-access.ts` (`hasActiveAccess`), unit tested.
 
 **`SubscriptionSource`**: `REVENUECAT` (store purchase) or `ADMIN_OVERRIDE` (free access granted by an Admin).
+
+**`OneTimeCodePurpose`**: `EMAIL_VERIFICATION` (6-digit code after sign-up) or `PASSWORD_RESET` (used in the next step).
 
 **`PushPlatform`**: `IOS_VOIP` (PushKit: rings the phone), `IOS_APNS` (normal iOS notifications), `ANDROID_FCM` (Android calls + chat).
 
@@ -168,6 +179,7 @@ An index is a sorted lookup structure: instead of reading every row, Postgres ju
 | `users_banned_idx` `(banned_at DESC) WHERE is_banned` | Admin "banned users" list. | Maybe 20 banned users among 100,000. The index holds only those 20 entries. |
 | `sessions_user_live_idx` `(user_id) WHERE revoked_at IS NULL` | "Live sessions of a user." | Revoked sessions pile up forever; the index ignores them so it stays small as history grows. |
 | `coach_profiles_listable_idx` `(user_id) WHERE approved AND available` | People screen "Available now" coaches. | Few coaches are approved and online at any moment. |
+| `one_time_codes_active_key` UNIQUE `(user_id, purpose) WHERE consumed_at IS NULL` | At most ONE active code per user and purpose. | "Send a new code" first marks the old one consumed. If two requests race, the database refuses the second instead of leaving two valid codes. Used/replaced codes are kept as history without blocking anything. |
 | `subscriptions_expiring_idx` `(expires_at) WHERE status IN (TRIAL, ACTIVE, GRACE_PERIOD, CANCELLED_ACTIVE)` | Background job finding subscriptions about to end. | Expired rows (the majority over time) never need that scan. |
 
 Important: for Postgres to use a partial index, the query's WHERE must **include the index condition**. That is why every "live user" query has `deletedAt: null` and every "live session" query has `revokedAt: null`. Because the email unique index is partial, Prisma has no `findUnique({ email })`; we use `findFirst({ email, deletedAt: null })`.
@@ -178,6 +190,7 @@ Important: for Postgres to use a partial index, the query's WHERE must **include
 - `users_email_lowercase_chk`: `email = lower(email)`
 - `users_ban_consistent_chk`: a banned user must have `banned_at`
 - `blocks_not_self_chk`: you cannot block yourself
+- `one_time_codes_attempts_chk`: wrong-guess counter can't go negative
 
 **Planned indexes (not created yet, with the use case)**
 | Where / when | Index | Why |
@@ -261,6 +274,8 @@ A valid signature only proves the token was issued. To make logout and bans effe
 | `POST /auth/refresh` | public (needs refresh token) | Works for mobile and admin sessions. |
 | `POST /auth/logout` | any token | Revokes current session. 204. |
 | `GET /auth/me` | any token | Profile + subscription + `canCall`. |
+| `POST /auth/email/send-code` | any mobile token | Emails a new 6-digit code (10 min). 429 `CODE_COOLDOWN` + `retryAfterSeconds` if asked within 60 s. 409 `ALREADY_VERIFIED`. |
+| `POST /auth/email/verify` `{code}` | any mobile token | 200 `{emailVerified:true}`. 400 `INVALID_CODE` (+`attemptsLeft`), `CODE_EXPIRED`, `CODE_LOCKED` (5 wrong guesses). |
 | `POST /admin/auth/login` | public | SUPPORT/ADMIN only. Issues an `admin`-audience token. |
 | `GET /admin/users/:id` | SUPPORT, ADMIN | Read-only user detail. |
 | `POST /admin/users/:id/ban`, `/unban` | ADMIN only | See Section 7. |
@@ -270,6 +285,14 @@ A valid signature only proves the token was issued. To make logout and bans effe
 Rate limit: 120 req/min per IP globally, **10/min on login/register/refresh** (HTTP 429). (Per-IP only for now; add per-account lockout later.)
 
 ---
+
+### 5.4 Email verification (6-digit code)
+- **Sign-up** creates the user and emails a code. The app then shows "Check your email" until the code is entered; the account exists either way, so the back arrow just signs out and the user can verify later.
+- The code is random (`crypto.randomInt`), valid 10 minutes, and stored only as an **HMAC** (hash with our secret). A plain hash of a 6-digit number could be reversed instantly if the database leaked; the HMAC cannot without the secret.
+- **Limits:** 5 wrong guesses lock the code (counted atomically, so parallel guesses can't dodge it); one email per minute per user; routes are rate-limited.
+- A new code retires the old one, so only one is ever valid.
+- **Mailer:** `mail/mailer.service.ts` only PRINTS emails in the backend console in development (and tests read `outbox`). Before launch swap `send()` for an HTTP email provider; nothing else changes. **To test sign-up locally, read the code from the backend terminal.**
+- The mobile app gates on `user.emailVerified`. The API itself does not yet refuse unverified users (decide later if calls should require a verified email).
 
 ## 6. RBAC (role-based access control)
 
@@ -323,11 +346,29 @@ Idempotent: banning twice does nothing extra (and writes one audit row). Reason 
 |------|------|
 | `src/config.ts` | Backend URL per platform (iOS sim `localhost`, Android emulator `10.0.2.2`; real phone = your Mac's Wi-Fi IP). |
 | `src/api/client.ts` | `apiRequest()`: the only way to call the backend. Failures become `ApiError(status, code, message)`; `status 0` = no network. |
+| `src/api/authApi.ts` | Typed functions `login / register / refresh / logout / me`; types mirror the backend answers (checked against the live server). |
+| `src/api/withAuth.ts` | Wrap every logged-in call: `withAuth((token) => authApi.me(token))`. Expired access token -> one shared refresh + retry; revoked/banned -> sign out; network error -> user stays signed in. |
 | `src/auth/tokenStorage.ts` | Tokens + device id in Keychain/Keystore (`AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY`: readable on a locked phone for incoming calls, never backed up). |
+| `src/auth/authStore.ts` | Zustand store: `status` (booting / signedOut / signedIn / offline), `restore()` on app open (valid token -> in; expired -> silent refresh; revoked/banned -> out with a reason; no network -> `offline`, tokens kept), `signIn`, `register`, `signOut` (works offline). |
 | `src/theme/` | Design tokens (colors, spacing, text) copied from the UI design. Screens never use raw colors. |
-| `src/components/` | `Button`, `TextField` shared by all screens. |
+| `src/components/` | `Button`, `TextField`, `Logo` (the "C inside C" mark drawn with SVG: two open arcs facing each other with a dot between them), `icons` (back, check, dot). Shared by all screens. |
 | `src/screens/` | One file per screen (`SignInScreen` so far). Screens take callbacks as props; wiring to the backend is done outside the screen. |
-Tests: `npx jest` in `mobile/`. Fonts (Bricolage Grotesque, Hanken Grotesk) are not bundled yet; system font is used.
+Screens so far: `SplashScreen` (green, logo tile, determinate progress bar: climbs to 85% while waiting, fills when ready, then hands over), `SignInScreen`, `RegisterScreen`, `VerifyEmailScreen` (6 boxes over ONE hidden input so paste/keypad/iOS autofill work; auto-submits at 6 digits; resend countdown), `OfflineScreen`, `HomeScreen` (temporary: shows the real `/auth/me` answer and has a dev button to spoil the token and test refresh). `App.tsx` picks the screen from `authStore.status`.
+Native launch screens (iOS `LaunchScreen.storyboard`, Android `windowBackground`) are green too, so there is no white flash before the JS splash.
+Tests: `npx jest` in `mobile/`. Testing gotchas: `jest.setup.js` mocks `react-native-svg`; a timer that re-arms itself after each render (countdowns) needs one `act` per second in tests; mock `react-native-safe-area-context` (its provider renders nothing in tests); in `act`, effects start only after the first block ends, so wait in a second `act`. Fonts (Bricolage Grotesque, Hanken Grotesk) are not bundled yet; system font is used.
+
+**Run it on the iOS simulator:** (1) backend running on port 3000, (2) `cd mobile && npx react-native start`, (3) `npm run ios` (or build in Xcode and open the app). Log in as `sara@coachconnect.dev` / `Password123!`. Placeholder to change before release: the iOS bundle id is still the template's `org.reactjs.native.example.CoachConnect` and Android's is `com.coachconnect`.
+
+### 8c. Admin web panel (`admin/`)
+- **Stack:** Next.js (App Router) + TypeScript, plain CSS Modules with design tokens in `globals.css` (chosen over Tailwind: fewer new concepts for a first Next.js project; can be added later). Fonts: Bricolage Grotesque (headings), Hanken Grotesk (body).
+- **Production = static export** (`output: 'export'`): plain files in `out/` that the NestJS backend will serve from the same address as the API, so the secure login cookie works and there is one deployable service. Consequence: no Next server features (rewrites, cookies(), server actions, route handlers using the request). All data comes from the backend API via `fetch` in the browser.
+- **Development:** `npm run dev` on port 3001; `next.config.ts` forwards `/api/*` to the backend (port 3000), so the browser sees one address. (Rewrites only exist in dev; static exports do not allow them.) TODO before deploy: make the backend answer under the path the built panel calls (e.g. serve the panel under `/panel` and keep API paths).
+- `src/lib/api.ts` (one place for requests, `ApiError` with backend codes), `src/lib/session.ts` (sign in/out, `useSession()`), `src/components/AdminShell.tsx` (sidebar + frame, redirects to Sign in when signed out), pages: `/login`, `/dashboard`.
+- **Temporary:** tokens are kept in page memory only (never localStorage), so a refresh signs you out. Next backend step: httpOnly cookie login + CSRF protection, then 2FA for ADMIN. Pages only use `session.ts`, so they won't change.
+- Sidebar items other than Dashboard are shown greyed ("Coming soon") until their pages exist.
+
+### 8d. App icon
+Source of truth: `mobile/scripts/generate-icons.mjs` (draws the "C inside C" mark; run `npm run icons` in `mobile/`). It writes `mobile/assets/app-icon.svg`, the iOS 1024 px icon (`AppIcon.appiconset`, no transparency; iOS rounds the corners) and Android legacy, round and adaptive icons (`mipmap-*`, `mipmap-anydpi-v26`, colors in `values/colors.xml`; mark kept inside the adaptive safe zone, also used as the Android 13 themed icon). Change the design in that script and re-run. Checked: iOS build shows it on the home screen; Android `mergeDebugResources` succeeds (not run on an emulator).
 
 **Docs policy:** `Requirement & Design/` (client PRD, UI export, plans) is git-ignored and stays on your machine. Only `README.md` and `knowledge.md` are shared in the repo.
 
@@ -357,3 +398,10 @@ Phase 1 remaining: People step 1.4b (name search with trigram index, specialty f
 - **2026-10-23, Phase 1 (part 1):** Prisma schema + hand-written partial indexes and CHECKs; Argon2id passwords; access JWT + rotating hashed refresh tokens with theft detection; global JWT/Roles guards; admin login; ban/unban with immediate effect and audit log; seed data; 23 integration tests.
 - **2026-10-26, Phase 1 (part 2):** fixed a timezone bug (app-written times were stored shifted on non-UTC machines); added `GET /people` (step 1.4a) with 6 tests.
 - **2026-10-26, Auth flow (mobile):** M1 API client, M2 Keychain token storage, M7a Sign in screen UI with theme/components; 18 mobile tests. `Requirement & Design/` is now git-ignored.
+- **2026-10-26, Auth flow (mobile):** M3 typed auth API calls (`authApi`).
+- **2026-10-26, Auth flow (mobile):** M4 auth store with session restore.
+- **2026-10-26, Auth flow (mobile):** M5 automatic refresh (`withAuth`, single shared refresh); M6/M7b root gate and Sign in wired to the backend; temporary Home screen; 43 mobile tests.
+- **2026-10-26, first run on a simulator:** real login, wrong-password error, silent token refresh and restart persistence verified on iPhone 17 Pro. Fixed: stale form errors now clear on edit; app no longer hangs on the splash if Keychain fails.
+- **2026-10-26, Auth flow (batch 2):** new splash (green, SVG "C inside C" logo, determinate bar) + green native launch screens; email verification backend (mailer, `one_time_codes`, HMAC codes, attempt limit, cooldown); Create account and Verify email screens; Root switch; backend 41 tests, mobile 63 tests.
+- **2026-10-26, verified on the simulator:** splash, Sign in, Create account (live password tick), Verify email (wrong code -> "4 tries left", right code -> Home) against the real backend; fixed refocus bug; 64 mobile + 41 backend tests.
+- **2026-10-26, admin web started:** Next.js 16 scaffold (static export in production, dev proxy), sign-in page (design A1) and dashboard shell (A2) connected to the real backend; session helper with logout; 8 admin tests. App icon added for iOS and Android. Port-in-use fix documented.
