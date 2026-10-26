@@ -18,7 +18,7 @@ export async function createApp(): Promise<INestApplication> {
 }
 
 export async function resetDb(prisma: PrismaService) {
-  await prisma.$executeRawUnsafe('TRUNCATE TABLE audit_log, push_tokens, blocks, subscriptions, coach_profiles, sessions, users CASCADE');
+  await prisma.$executeRawUnsafe('TRUNCATE TABLE one_time_codes, audit_log, push_tokens, blocks, subscriptions, coach_profiles, sessions, users CASCADE');
 }
 
 /** Insert a user straight into the database (staff and coaches cannot self-register). */

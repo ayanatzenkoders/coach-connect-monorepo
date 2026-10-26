@@ -10,6 +10,7 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
 import { RolesGuard } from './auth/roles.guard.js';
 import { validateEnv } from './config/env.js';
 import { HealthModule } from './health/health.module.js';
+import { MailModule } from './mail/mail.module.js';
 import { PeopleModule } from './people/people.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 
@@ -25,6 +26,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
     EventEmitterModule.forRoot(),
     PrismaModule,
     AuditModule,
+    MailModule,
     AuthModule,
     AdminModule,
     PeopleModule,

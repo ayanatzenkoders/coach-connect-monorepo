@@ -9,7 +9,9 @@ export class AppException extends HttpException {
     status: number,
     public readonly code: string,
     message: string,
+    /** Extra fields for the app, e.g. { retryAfterSeconds: 42 }. */
+    extra: Record<string, unknown> = {},
   ) {
-    super({ statusCode: status, code, message }, status);
+    super({ statusCode: status, code, message, ...extra }, status);
   }
 }

@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString, Length, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 const normalizeEmail = ({ value }: { value: unknown }) =>
@@ -40,4 +40,9 @@ export class LoginDto {
 export class RefreshDto {
   @IsString() @IsNotEmpty() @MaxLength(256)
   refreshToken!: string;
+}
+
+export class VerifyEmailDto {
+  @Matches(/^\d{6}$/, { message: 'code must be 6 digits' })
+  code!: string;
 }

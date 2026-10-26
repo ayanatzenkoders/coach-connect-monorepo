@@ -6,6 +6,7 @@ import { AppException } from '../common/errors/app.exception.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { hasActiveAccess } from '../subscriptions/subscription-access.js';
 import type { LoginDto, RegisterDto } from './dto/auth.dto.js';
+import { EmailVerificationService } from './email-verification.service.js';
 import { PasswordService } from './password.service.js';
 import { TokenService } from './token.service.js';
 
@@ -54,6 +55,7 @@ export class AuthService {
     private readonly passwords: PasswordService,
     private readonly tokens: TokenService,
     private readonly audit: AuditService,
+    private readonly emailVerification: EmailVerificationService,
     config: ConfigService,
   ) {
     this.sessionTtlMs = config.getOrThrow<number>('SESSION_TTL_DAYS') * 86_400_000;
@@ -80,6 +82,8 @@ export class AuthService {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') throw this.emailTaken();
       throw e;
     }
+    // Email the verification code. If the email fails, sign-up still works: the app can ask again.
+    await this.emailVerification.sendCode(user.id).catch(() => undefined);
     return this.startSession(user, 'MOBILE', dto.deviceId, dto.deviceName);
   }
 
