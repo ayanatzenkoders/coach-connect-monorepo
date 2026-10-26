@@ -12,7 +12,7 @@ const TINTS = [
   { bg: '#F3E3EA', ink: '#7A2A4B' },
 ];
 
-export const initialsOf = (name: string) =>
+const initialsOf = (name: string) =>
   name
     .trim()
     .split(/\s+/)

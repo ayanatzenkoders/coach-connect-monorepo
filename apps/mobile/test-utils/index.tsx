@@ -23,7 +23,7 @@ export const unmountAll = () => {
 };
 
 /** A fresh React Query client per test: no retries, nothing cached between tests. */
-export const testQueryClient = () => new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } } });
+const testQueryClient = () => new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } } });
 
 /** Render (inside a React Query provider, like the real app) and wait for the first effects to settle. */
 export async function render(element: React.ReactElement): Promise<Tree> {

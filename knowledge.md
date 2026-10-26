@@ -29,8 +29,30 @@ We follow the Zenkoders boilerplate layout (`mobile-app-boilerplate`, branch `mo
 - **Turborepo** runs the same script names everywhere: `dev`, `build`, `lint`, `typecheck`, `test`, `clean`. `pnpm turbo typecheck lint test` checks the whole repo; `turbo` builds `packages/shared` first (`^build`).
 - **One version for shared libraries** lives in the pnpm *catalog* (`pnpm-workspace.yaml`): `"zod": "catalog:"`. React is pinned to ONE version (19.3.0) for web and mobile.
 - **`@coach-connect/shared` is the contract between apps.** The API validates requests with its zod schemas, the mobile forms and the web panel use the same route list and types. Import **subpaths** on mobile (`/api`, `/constants`, `/types`): Metro does not tree-shake, so the root barrel would add zod to the app for a single constant.
-- **Native dependency versions are pinned exactly** in `apps/mobile/package.json` where CocoaPods cares (`@livekit/react-native-webrtc` 150.1.0, `@react-native-firebase/*` 27.0.0). pnpm has no lockfile history from npm, and a newer patch of livekit asked for a WebRTC pod we could not install. Bump them on purpose, then `pod install`.
+- **Only what is used is installed.** `apps/mobile` lists just the libraries its code imports (section 1.2 has what was removed and how to bring it back). Native module versions that CocoaPods is picky about get pinned exactly when they are added.
 - Ports stay as before: API 3000, web 3001, Metro 8081 (the boilerplate uses 4000/3000).
+
+### 1.2 Removed on purpose (add back with the feature that needs it)
+A cleanup pass removed everything nothing imported. Each item returns with its phase; add it with `pnpm --filter @coach-connect/mobile add <pkg>@<version>`, then `cd apps/mobile/ios && pod install`.
+
+| Removed | Was for | Last version here |
+|---|---|---|
+| `@livekit/react-native`, `@livekit/react-native-webrtc`, `livekit-client` | Calls (Phase 3) | 3.1.0, **150.1.0 (pin it: 150.1.1 needs a WebRTC pod we could not install)**, 2.23.0 |
+| `react-native-callkeep`, `react-native-voip-push-notification` | Ringing a locked phone (Phase 5) | 4.6.1, 3.3.3 |
+| `@react-native-firebase/app`, `/messaging`, `@notifee/react-native` | Push notifications (Phase 5). Firebase v27 needs dynamic frameworks: set `linkage = ENV['USE_FRAMEWORKS'] \|\| 'dynamic'` in the Podfile | 27.0.0, 27.0.0, 9.1.8 |
+| `socket.io-client` | Real-time chat and call events (Phase 7) | 4.8.4 |
+| `@op-engineering/op-sqlite` | Offline message outbox (Phase 7) | 18.2.5 |
+| `react-native-purchases` | Subscriptions (Phase 6) | 10.15.1 |
+| `@sentry/react-native` | Crash reporting (Phase 10) | 8.32.0 |
+| `@react-native-google-signin/google-signin`, `@invertase/react-native-apple-authentication` | Google / Apple sign-in | 16.1.5, 2.5.1 |
+| `react-native-image-picker` | Chat images / avatars. It needs `-framework UniformTypeIdentifiers -framework MobileCoreServices` in the Podfile `post_install` when frameworks are dynamic | 8.3.0 |
+| `@react-navigation/bottom-tabs`, `@react-native/new-app-screen`, `@babel/preset-env` | Not used (the tab bar is hand-made; template leftovers) | |
+| API: `@nestjs/event-emitter` + the `user.banned` / `chat.message.created` events | Nothing listened to them. Add back with sockets / calls | |
+| API: table `push_tokens` + enum `PushPlatform` (and "a ban deletes the user's push tokens") | Push notifications. Re-add with a migration, and make `BanService.ban` delete the tokens in its transaction | |
+| API: `subscriptions.source`, `subscriptions.last_event_id` + enum `SubscriptionSource` | RevenueCat webhook (Phase 6) | |
+| API: `@nestjs/mau` (`nest deploy`), `source-map-support`, `@vitest/coverage-v8`, explicit `pg` / `@types/pg` (`@prisma/adapter-pg` brings its own) | Template leftovers | |
+| `.env.example`: `LIVEKIT_*`, `MAX_GUESTS_PER_COACH_CALL` | Calls | |
+| Root prettier config and `pnpm format` | It formatted with double quotes while the code uses single quotes. `apps/api` keeps its own prettier config and `pnpm format` | |
 
 ## 2. Run it locally
 
@@ -71,11 +93,9 @@ Then once: `DATABASE_URL=postgresql://coach:coach_dev_password@localhost:5432/co
 | Symptom | Cause / fix |
 |---------|-------------|
 | `pod install` crashes with `Unicode Normalization not appropriate for ASCII-8BIT` | Run with `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8`. |
-| iOS link error `_kUTTypeImage` in `react-native-image-picker` | Dynamic frameworks need Apple frameworks linked by hand; fixed in `apps/mobile/ios/Podfile` `post_install`. |
-| Podfile uses dynamic frameworks | Required by React Native Firebase v27 (SPM). |
 | `pnpm install` says "Ignored build scripts" | pnpm 10 blocks install scripts. Allow-listed ones are in `pnpm-workspace.yaml` (`onlyBuiltDependencies`: argon2, prisma, esbuild...). Add a package there only if it really needs its script. |
 | `tsup` fails with TS5101 `baseUrl is deprecated` | TypeScript 6. `packages/tsconfig/base.json` sets `"ignoreDeprecations": "6.0"`. |
-| `pod install`: "could not find compatible versions for LiveKitWebRTC" | A newer patch of `@livekit/react-native-webrtc` wants a WebRTC pod we cannot fetch. Native modules are pinned exactly in `apps/mobile/package.json`; keep them pinned. |
+| `pod install`: "could not find compatible versions for LiveKitWebRTC" | (When calls are added back.) Pin `@livekit/react-native-webrtc` to 150.1.0; 150.1.1 wants a WebRTC pod we could not fetch. |
 | Jest: "Unexpected token 'export'" from `@react-navigation` | It ships ES modules. `apps/mobile/jest.config.js` adds `@react-navigation` to `transformIgnorePatterns`. |
 | `npx prisma` shows a totally different CLI (v8 rc) | Run Prisma through the project: `pnpm prisma ...` inside `apps/api` (pinned to 7.10.1, same as `@prisma/client`). A bare `npx prisma` outside `apps/api` downloads npm's `latest`, a release candidate. |
 | `zsh: command not found: psql -h ...` | zsh does not word-split a variable holding a command. Use a shell function, not a string variable. |
@@ -102,7 +122,7 @@ Then once: `DATABASE_URL=postgresql://coach:coach_dev_password@localhost:5432/co
 ## 4. Database
 
 Postgres 16. Prisma 7 (schema in `apps/api/prisma/schema.prisma`; connection URL lives in `prisma.config.ts`).
-Tables: `users`, `sessions`, `coach_profiles`, `subscriptions`, `blocks`, `push_tokens`, `audit_log`.
+Tables: `users`, `sessions`, `coach_profiles`, `subscriptions`, `blocks`, `one_time_codes`, `conversations`, `messages`, `audit_log`.
 
 ### 4.1 Conventions
 - **Primary keys: UUID v7** (`@default(uuid(7))`). Time-ordered, so new rows append to the end of the index (faster inserts, less bloat than random v4) and ids cannot be guessed like `1,2,3`.
@@ -145,11 +165,7 @@ Tables: `users`, `sessions`, `coach_profiles`, `subscriptions`, `blocks`, `push_
 
 Implemented in `apps/api/src/subscriptions/subscription-access.ts` (`hasActiveAccess`), unit tested.
 
-**`SubscriptionSource`**: `REVENUECAT` (store purchase) or `ADMIN_OVERRIDE` (free access granted by an Admin).
-
 **`OneTimeCodePurpose`**: `EMAIL_VERIFICATION` (6-digit code after sign-up) or `PASSWORD_RESET` (used in the next step).
-
-**`PushPlatform`**: `IOS_VOIP` (PushKit: rings the phone), `IOS_APNS` (normal iOS notifications), `ANDROID_FCM` (Android calls + chat).
 
 #### States that arrive in later phases (defined now so we agree on the meaning)
 
@@ -186,12 +202,11 @@ An index is a sorted lookup structure: instead of reading every row, Postgres ju
 |-------|---------------|
 | `sessions(user_id)` | Find all sessions of a user (ban, logout-all, devices screen). Also makes `ON DELETE CASCADE` from users fast. |
 | `blocks(blocked_id)` | The primary key `(blocker_id, blocked_id)` serves "who did I block". This reverse index serves "who blocked me", needed for the either-direction check. |
-| `push_tokens(user_id)` | "All devices of a user" when sending a call push, and when a ban deletes them. |
 | `audit_log(actor_id, created_at)` | "What did this admin do, newest first." |
 | `audit_log(target_type, target_id, created_at)` | "History of this user." |
 | `audit_log(created_at)` | Global recent-activity feed. |
 
-**Unique index**: the database guarantees no duplicates (even if two requests race). `push_tokens(token)`, `subscriptions(user_id)` (one row per user).
+**Unique index**: the database guarantees no duplicates (even if two requests race). `subscriptions(user_id)` (one row per user).
 
 **Partial index** (`... WHERE condition`): indexes **only the rows matching the condition**. Useful when you always query a small, well-defined slice of a big table: the index is tiny, fast, and cheap to maintain. All of ours are RAW SQL in the init migration.
 | Partial index | Use case | Why partial |
@@ -229,7 +244,7 @@ Important: for Postgres to use a partial index, the query's WHERE must **include
 
 ### 4.4 Transactions
 A transaction is "all or nothing". Used where several changes must stay consistent:
-- **Ban**: user flag + revoke sessions + delete push tokens + audit entry all succeed together or not at all.
+- **Ban**: user flag + revoke sessions + audit entry all succeed together or not at all.
 - **Login**: revoke the old session on this device + create the new one.
 - Audit rows are written *inside* the same transaction as the action they describe, so the log can never disagree with reality.
 - Later (group calls): invite uses a row lock (`SELECT ... FOR UPDATE` on the call) so two simultaneous "add person" requests can't both take the last seat.
@@ -358,8 +373,8 @@ Rate limit: 120 req/min per IP globally, **10/min on login/register/refresh** (H
 - **Message numbers without races:** one `UPDATE conversations SET last_seq = last_seq + 1 ... RETURNING` inside the transaction takes the next number; the row lock makes parallel sends queue up (tested with 9 at once: numbers 1..9, no gaps).
 - **Idempotent send:** the app makes a `clientMsgId` for every message. A retry after a bad connection returns the same saved message, so nothing is duplicated (also when two identical requests race: the unique index decides and the loser fetches the winner).
 - **Unread without counting:** sending a message sets the sender's read marker to it, so `unreadCount = last_seq - my_read_seq`. "Seen" = the other side's `read_seq >= message.seq`.
-- **Privacy:** only the two people can read a chat (others get 404, not 403). Blocks hide the chat and stop sending; banned or deleted people are hidden. An event `chat.message.created` is emitted after each save for sockets/push later.
-- **Mobile:** `MessagesScreen` (list, unread badge, refreshes every 5 s while visible), `ChatRoomScreen` (inverted list, bubbles, "Sending… / Not sent, tap to retry / Sent / Seen", loads older on scroll up, asks for newer messages every 3 s), `useChat` hook, `chatApi`. The chat opens as a layer over the tabs (from a Messages row or the chat button in People). Message numbers (`after=N`) are the catch-up cursor.
+- **Privacy:** only the two people can read a chat (others get 404, not 403). Blocks hide the chat and stop sending; banned or deleted people are hidden.
+- **Mobile:** `Messages` (list, unread badge, refreshes every 5 s while visible), `Chat` (inverted list, bubbles, "Sending… / Not sent, tap to retry / Sent / Seen", loads older on scroll up, asks for newer messages every 3 s), `useChat` hook, `chatApi`. The chat opens as a layer over the tabs (from a Messages row or the chat button in People). Message numbers (`after=N`) are the catch-up cursor.
 - **Not built yet (Phase 7 remainder):** Socket.io real-time (polling is the stand-in), offline outbox that survives app restarts, typing, images, push notifications, day separators and the offline banner. Moving to sockets keeps the same REST endpoints for catch-up.
 
 ## 6. RBAC (role-based access control)
@@ -387,8 +402,8 @@ Defence in depth:
 ## 7. Ban flow (immediate)
 
 `POST /admin/users/:id/ban {reason, note?}` → `BanService.ban` (`moderation/ban.service.ts`):
-1. **One transaction:** set `is_banned/banned_at/ban_reason/banned_by_id` → revoke every live session (`BANNED`) → delete all push tokens → write audit entry `user.ban`.
-2. After commit, emit event **`user.banned`**. Today a listener only logs. Phase 3 (calls) and Phase 7 (chat) will attach listeners that disconnect sockets, end active calls and remove the user from LiveKit rooms (target: within 5 s).
+1. **One transaction:** set `is_banned/banned_at/ban_reason/banned_by_id` → revoke every live session (`BANNED`) → write audit entry `user.ban`.
+2. Later phases add the realtime part: after the commit, disconnect the user's sockets, end active calls and remove them from LiveKit rooms (target: within 5 s). Nothing listens yet, so there is no event today.
 
 Why it is immediate: the guard hits the database on every request, and sessions are revoked in the same transaction, so even a not-yet-expired access token is rejected on the next call (`401 SESSION_REVOKED`; with a surviving session it would be `403 ACCOUNT_BANNED`). Login and refresh also refuse. Unban clears the flag but leaves old sessions dead: the user signs in again.
 
@@ -405,16 +420,15 @@ Idempotent: banning twice does nothing extra (and writes one audit row). Reason 
 | Sessions table checked on every request | Instant logout/ban; cost = one PK lookup. Plan's `token_version` column dropped as redundant. | 2026-10 |
 | Single JWT secret + `iss`/`aud` claims, not two secrets | Simpler; audience is enforced per route. Revisit when admin panel gets cookies. | 2026-10 |
 | `MEMBER` replaces `CLIENT` | Matches the new UI ("Members"). | 2026-10 |
-| Ban listener is a stub that logs | Sockets/LiveKit don't exist yet; event contract is in place so no rewrite later. | 2026-10 |
 | Docker Postgres bound to `127.0.0.1` | Publishing 5432 on all interfaces exposes the DB on public Wi-Fi with a password that is in git. | 2026-10 |
 | Seed refuses `NODE_ENV=production` | Dev passwords must never reach a real database. | 2026-10 |
 | Monorepo like the Zenkoders boilerplate (pnpm + Turborepo, `apps/*`, `packages/shared`) | One contract (zod schemas + route list) for API, mobile and web; same layout on every Zenkoders project. | 2026-10 |
 | API validates with zod schemas from `@coach-connect/shared` (`@Body({ schema })`), not class-validator DTOs | The mobile forms and the API cannot drift; unknown fields are rejected with `z.strictObject`. Errors are `{ message, errors: { field: [..] } }`. | 2026-10 |
-| Mobile stays bare React Native; only the boilerplate's structure was adopted | Our native setup (Keychain, LiveKit, Firebase, signed simulator builds) works; Expo CNG would be a migration with no product benefit now. | 2026-10 |
+| Mobile stays bare React Native; only the boilerplate's structure was adopted | Our native setup (Keychain, signed simulator builds) works; Expo CNG would be a migration with no product benefit now. | 2026-10 |
 
 ## 8b. Mobile app structure (`apps/mobile/`)
 
-Follows the Zenkoders boilerplate (`mono-repo` branch), but stays **bare React Native 0.88** (our own `ios/` and `android/`, Keychain, SVG, LiveKit, Firebase). We copied the *structure and conventions*, not Expo.
+Follows the Zenkoders boilerplate (`mono-repo` branch), but stays **bare React Native 0.88** (our own `ios/` and `android/`, Keychain, SVG). We copied the *structure and conventions*, not Expo.
 
 ```
 App.tsx                      Providers: React Query -> SafeArea -> NavigationContainer (after the splash) + toast host
@@ -515,3 +529,4 @@ Phase 1 remaining: Google/Apple sign-in; change password (B4); admin cookie logi
 - **2026-10-26, People screen (mobile):** tabs shell, Coaches/Members with search, specialty + "Available now" chips, paging, specialty tags on coach cards; backend returns the chip list. Verified on the simulator. Mobile 130 tests, backend 74 integration tests.
 - **2026-10-26, chat (first slice):** conversations/messages tables, REST API (open, list, page, idempotent send, read receipts), Messages list and Chat room screens with polling. Verified on the simulator with a coach account answering via the API (message arrived, "Seen" shown). Backend 92 integration tests, mobile 148.
 - **2026-10-26, monorepo refactor (boilerplate layout):** `mobile/`, `backend/`, `admin/` moved to `apps/mobile`, `apps/api`, `apps/web`; pnpm + Turborepo; new `packages/shared` (zod schemas, `API_ROUTES`, types, constants) and `packages/tsconfig`. API now validates with the shared zod schemas through a global `ZodValidationPipe` (class-validator DTOs removed), env validated with zod, OpenAPI at `/docs`. Mobile restructured to the boilerplate folders (`components/common/Custom*`, `screens/<module>/<screen>` + `hook/`, `service`, `store`, `constants`, `utils`), native-stack navigation driven by sign-in status, React Query for People/Messages/Profile. Backend 94 integration + 21 unit tests, mobile 155, web 8, shared 6.
+- **2026-10-27, cleanup pass:** removed everything nothing imported: 17 unused native libraries from the app (list and how to restore them in section 1.2), the unused `push_tokens` table and `subscriptions.source/last_event_id` (migration `drop_unused_push_tokens_and_subscription_source`), the event emitter and the log-only ban listener, unused props/variants/theme tokens/exports, template READMEs, the mismatched root prettier config. Podfile is the standard RN one again. All suites green; iOS app rebuilt.

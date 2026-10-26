@@ -8,7 +8,7 @@ const NOTICES = {
   banned: 'This account has been suspended.',
   expired: 'Your session ended. Please sign in again.',
 };
-export const PASSWORD_UPDATED = 'Password updated. Sign in with your new password.';
+const PASSWORD_UPDATED = 'Password updated. Sign in with your new password.';
 
 interface Params {
   /** True when the user just finished "Forgot password". */

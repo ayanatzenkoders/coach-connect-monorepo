@@ -1,4 +1,4 @@
-export type Variant = 'primary' | 'dark' | 'outline';
+type Variant = 'primary' | 'outline';
 
 export interface CustomButtonProps {
   title: string;

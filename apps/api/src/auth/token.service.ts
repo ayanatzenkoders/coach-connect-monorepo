@@ -4,9 +4,9 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { Role, SessionAudience } from '../generated/prisma/client.js';
 
-export const JWT_ISSUER = 'coach-connect';
+const JWT_ISSUER = 'coach-connect';
 
-export interface AccessPayload {
+interface AccessPayload {
   sub: string; // user id
   sid: string; // session id (lets the server cut a token off instantly)
   role: Role; // convenience for the client only. The server re-reads the role from the database.

@@ -2,7 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import { createApp, resetDb, api, bearer, PASSWORD } from './helpers.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { MailerService } from '../src/mail/mailer.service.js';
-import { MAX_ATTEMPTS } from '../src/auth/email-verification.service.js';
+import { MAX_ATTEMPTS } from '../src/auth/one-time-code.service.js';
 
 describe('Email verification', () => {
   let app: INestApplication;

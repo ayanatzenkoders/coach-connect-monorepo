@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD, APP_PIPE } from '@nestjs/core';
-import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AdminModule } from './admin/admin.module.js';
 import { AuditModule } from './audit/audit.module.js';
@@ -25,7 +24,6 @@ import { PrismaModule } from './prisma/prisma.module.js';
       throttlers: [{ name: 'default', ttl: 60_000, limit: 120 }],
       skipIf: () => process.env.NODE_ENV === 'test',
     }),
-    EventEmitterModule.forRoot(),
     PrismaModule,
     AuditModule,
     MailModule,

@@ -30,7 +30,7 @@ export interface AuthResult {
   user: PublicUser;
 }
 
-export interface PublicUser {
+interface PublicUser {
   id: string;
   email: string;
   name: string;

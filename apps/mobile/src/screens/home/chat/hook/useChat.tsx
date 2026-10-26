@@ -20,7 +20,7 @@ export interface ChatItem extends Omit<ChatMessage, 'id' | 'seq'> {
 const toItem = (m: ChatMessage): ChatItem => ({ ...m, status: 'sent' });
 
 /** Random id for a new message; the server uses it to recognise a retry of the same message. */
-export const newClientMsgId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+const newClientMsgId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
 /**
  * Merge new saved messages into the list. A saved message replaces our "sending" copy of it

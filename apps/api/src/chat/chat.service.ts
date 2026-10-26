@@ -1,12 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '../generated/prisma/client.js';
 import { AppException } from '../common/errors/app.exception.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { MessagesQueryParsed, SendMessageInput } from '@coach-connect/shared';
-
-/** Emitted after a message is saved. Sockets and push notifications will listen to it later. */
-export const MESSAGE_CREATED = 'chat.message.created';
 
 /** Only these people can be chatted with: active members and approved coaches. */
 const reachable = (id: string): Prisma.UserWhereInput => ({
@@ -23,10 +19,7 @@ type ConversationRow = Prisma.ConversationGetPayload<{ include: { userA: { selec
 
 @Injectable()
 export class ChatService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly events: EventEmitter2,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   /** Start (or reopen) the chat with someone. Always the same conversation for the same two people. */
   async open(me: string, otherId: string) {
@@ -133,7 +126,6 @@ export class ChatService {
           select: { id: true, seq: true, senderId: true, body: true, clientMsgId: true, createdAt: true },
         });
       });
-      this.events.emit(MESSAGE_CREATED, { conversationId, recipientId: other.id, message });
       return { message, duplicate: false };
     } catch (e) {
       // Two identical requests raced: the loser finds the winner's message.

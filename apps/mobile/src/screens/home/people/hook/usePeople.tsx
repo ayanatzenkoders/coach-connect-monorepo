@@ -8,7 +8,7 @@ import { withAuth } from '@/src/service/setup/withAuth';
 import { showToast } from '@/src/store/toast.store';
 import { useDebounced } from '@/src/utils/hooks/useDebounced';
 
-export type PeopleKind = 'coaches' | 'members';
+type PeopleKind = 'coaches' | 'members';
 
 /** Everything the People screen needs: the tab, search and filters, the list, paging and the row buttons. */
 export const usePeople = () => {

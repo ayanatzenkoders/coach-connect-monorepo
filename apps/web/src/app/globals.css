@@ -13,8 +13,6 @@
   --error: #b3261e;
   --error-tint: #f9e6e4;
   --error-ink: #8e1f18;
-  --warning-ink: #7f3d0a;
-  --warning-tint: #f7ebdd;
   --font-body: var(--font-hanken), system-ui, sans-serif;
   --font-heading: var(--font-bricolage), system-ui, sans-serif;
 }

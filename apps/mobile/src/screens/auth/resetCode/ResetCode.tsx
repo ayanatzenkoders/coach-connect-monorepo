@@ -22,7 +22,6 @@ const ResetCode: React.FC<Props> = ({ route }) => {
       initialResendSeconds={s.resendSeconds}
       onSendCode={s.resend}
       onSubmit={s.verify}
-      submitLabel="Verify"
       onBack={s.goBack}
     />
   );

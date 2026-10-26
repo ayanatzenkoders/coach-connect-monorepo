@@ -8,8 +8,7 @@ require Pod::Executable.execute_command('node', ['-p',
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
 
-# React Native Firebase v27 (SPM) requires dynamic frameworks: https://rnfirebase.io/ios-spm
-linkage = ENV['USE_FRAMEWORKS'] || 'dynamic'
+linkage = ENV['USE_FRAMEWORKS']
 if linkage != nil
   Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
   use_frameworks! :linkage => linkage.to_sym
@@ -31,16 +30,5 @@ target 'CoachConnect' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
-
-    # react-native-image-picker uses Apple UTType APIs but its podspec does not link the
-    # frameworks. Dynamic linking (needed by Firebase) then fails, so link them here.
-    installer.pods_project.targets.each do |target|
-      next unless target.name == 'react-native-image-picker'
-      target.build_configurations.each do |bc|
-        flags = bc.build_settings['OTHER_LDFLAGS'] || ['$(inherited)']
-        flags = [flags] if flags.is_a?(String)
-        bc.build_settings['OTHER_LDFLAGS'] = flags + ['-framework', 'UniformTypeIdentifiers', '-framework', 'MobileCoreServices']
-      end
-    end
   end
 end

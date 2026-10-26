@@ -23,7 +23,6 @@ export const MessagesQuerySchema = z.strictObject({
   after: z.coerce.number().int().min(0).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(30),
 });
-export type MessagesQuery = z.input<typeof MessagesQuerySchema>;
 export type MessagesQueryParsed = z.infer<typeof MessagesQuerySchema>;
 
 export const MarkReadInputSchema = z.strictObject({

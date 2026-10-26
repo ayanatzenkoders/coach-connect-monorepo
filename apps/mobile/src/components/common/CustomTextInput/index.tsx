@@ -5,17 +5,14 @@ import { COLORS, CONTROL_HEIGHT, RADIUS, TEXT } from '@/src/constants';
 import type { CustomTextInputProps } from './interface';
 
 /** Label + input + error text. The border turns green while typing and red on error. */
-export function CustomTextInput({ label, error, labelRight, ...inputProps }: CustomTextInputProps) {
+export function CustomTextInput({ label, error, ...inputProps }: CustomTextInputProps) {
   const [focused, setFocused] = useState(false);
   const borderColor = error ? COLORS.error : focused ? COLORS.primary : COLORS.border;
   const borderWidth = error || focused ? 2 : 1;
 
   return (
     <View style={styles.wrapper}>
-      <View style={styles.labelRow}>
-        <Text style={TEXT.label}>{label}</Text>
-        {labelRight}
-      </View>
+      <Text style={TEXT.label}>{label}</Text>
       <TextInput
         {...inputProps}
         accessibilityLabel={label}
@@ -35,7 +32,6 @@ export function CustomTextInput({ label, error, labelRight, ...inputProps }: Cus
 
 const styles = StyleSheet.create({
   wrapper: { gap: 6 },
-  labelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   input: {
     height: CONTROL_HEIGHT,
     borderRadius: RADIUS.control,

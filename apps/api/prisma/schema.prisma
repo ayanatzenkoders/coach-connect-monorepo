@@ -48,19 +48,6 @@ enum SubscriptionStatus {
   EXPIRED // Period ended or refunded. NO access.
 }
 
-/// Where the subscription state came from.
-enum SubscriptionSource {
-  REVENUECAT // Normal: store purchase, synced from RevenueCat.
-  ADMIN_OVERRIDE // An Admin granted free access (e.g. promo).
-}
-
-/// Which push channel a token belongs to.
-enum PushPlatform {
-  IOS_VOIP // Apple VoIP push (PushKit): rings the phone for calls.
-  IOS_APNS // Normal Apple push: chat/summary notifications.
-  ANDROID_FCM // Firebase push for Android (calls + chat).
-}
-
 /// What a one-time code is for.
 enum OneTimeCodePurpose {
   EMAIL_VERIFICATION // 6-digit code emailed after sign-up to prove the email is real.
@@ -93,7 +80,6 @@ model User {
   sessions         Session[]
   coachProfile     CoachProfile?
   subscription     Subscription?
-  pushTokens       PushToken[]
   oneTimeCodes     OneTimeCode[]
   blocksMade       Block[]        @relation("Blocker")
   blocksReceived   Block[]        @relation("Blocked")
@@ -148,19 +134,16 @@ model CoachProfile {
 }
 
 model Subscription {
-  id          String             @id @default(uuid(7)) @db.Uuid
+  id        String             @id @default(uuid(7)) @db.Uuid
   /// One row per user (unique). No row = never subscribed.
-  userId      String             @unique @map("user_id") @db.Uuid
-  status      SubscriptionStatus
-  source      SubscriptionSource @default(REVENUECAT)
+  userId    String             @unique @map("user_id") @db.Uuid
+  status    SubscriptionStatus
   /// "monthly" | "yearly" (store product id).
-  product     String?
+  product   String?
   /// End of the current paid/trial period. Access holds until this moment for CANCELLED_ACTIVE.
-  expiresAt   DateTime?          @map("expires_at") @db.Timestamptz(3)
-  /// Last RevenueCat event id handled: lets the webhook ignore duplicates (idempotency).
-  lastEventId String?            @map("last_event_id")
-  createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+  expiresAt DateTime?          @map("expires_at") @db.Timestamptz(3)
+  createdAt DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -179,21 +162,6 @@ model Block {
   @@id([blockerId, blockedId]) // also stops duplicate blocks; serves "who did I block"
   @@index([blockedId]) // reverse lookup: "who blocked me" (needed for the either-direction check)
   @@map("blocks")
-}
-
-model PushToken {
-  id         String       @id @default(uuid(7)) @db.Uuid
-  userId     String       @map("user_id") @db.Uuid
-  platform   PushPlatform
-  token      String       @unique
-  deviceId   String       @map("device_id")
-  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  lastUsedAt DateTime     @default(now()) @map("last_used_at") @db.Timestamptz(3)
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@map("push_tokens")
 }
 
 /// A short code we email to a user (verify email, reset password).

@@ -7,7 +7,7 @@ import * as Keychain from 'react-native-keychain';
  * AsyncStorage or MMKV for tokens: they are plain files that a stolen backup could expose.
  */
 
-export interface StoredTokens {
+interface StoredTokens {
   accessToken: string;
   refreshToken: string;
 }

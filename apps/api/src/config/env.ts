@@ -7,7 +7,7 @@ const envBoolean = z.enum(['true', 'false']).transform((value) => value === 'tru
  * Every environment variable the API reads is declared here. ConfigModule runs `validateEnv` at boot,
  * so a missing or weak value stops the app at start-up instead of failing later at request time.
  */
-export const EnvSchema = z.object({
+const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   DATABASE_URL: z.string().min(10),

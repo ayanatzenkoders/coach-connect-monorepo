@@ -2,7 +2,7 @@ import { API_ROUTES } from '@/src/constants';
 import type { AuthResult, CodeSent, Me } from '@coach-connect/shared/types';
 import { apiRequest } from '@/src/service/setup/apiClient';
 
-export type { AuthResult, CodeSent, Me, Role, SubscriptionStatus, User } from '@coach-connect/shared/types';
+export type { AuthResult, CodeSent, Me, User } from '@coach-connect/shared/types';
 
 interface DeviceInfo {
   /** Random id from getOrCreateDeviceId(). */

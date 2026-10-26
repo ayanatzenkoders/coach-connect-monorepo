@@ -17,7 +17,6 @@ onlyBuiltDependencies:
   - "@nestjs/core"
   - "@prisma/client"
   - "@prisma/engines"
-  - "@sentry/cli"
   - argon2
   - esbuild
   - prisma
@@ -26,6 +25,4 @@ onlyBuiltDependencies:
 
 # Install scripts we deliberately skip.
 ignoredBuiltDependencies:
-  - "@firebase/util"
-  - protobufjs
   - "@scarf/scarf"

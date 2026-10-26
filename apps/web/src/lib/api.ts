@@ -7,7 +7,7 @@
 import type { ApiError as ApiErrorBody } from '@coach-connect/shared/api';
 
 /** In development Next forwards /api/* to the backend (see next.config.ts). */
-export const API_BASE = '/api';
+const API_BASE = '/api';
 
 export class ApiError extends Error {
   constructor(

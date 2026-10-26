@@ -17,7 +17,6 @@ export function CustomButton({ title, onPress, variant = 'primary', loading = fa
       style={({ pressed }) => [
         styles.base,
         variant === 'primary' && { backgroundColor: pressed ? COLORS.primaryPressed : COLORS.primary },
-        variant === 'dark' && { backgroundColor: COLORS.ink },
         variant === 'outline' && { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border },
         inactive && styles.inactive,
       ]}>

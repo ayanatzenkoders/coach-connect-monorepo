@@ -11,6 +11,5 @@ export interface CustomCodeEntryProps {
   initialResendSeconds?: number;
   /** Check the typed code. Throws (ApiError) when it is wrong; the error is shown as a toast. */
   onSubmit: (code: string) => Promise<void>;
-  submitLabel?: string;
   onBack: () => void;
 }

@@ -5,7 +5,7 @@ import { PASSWORD_MAX, PASSWORD_MIN } from '@/src/constants';
  * uppercase letter, one number. The server checks the same rule (PASSWORD_PATTERN in
  * packages/shared); this is the instant feedback behind the checklist under the field.
  */
-export interface PasswordRule {
+interface PasswordRule {
   id: 'length' | 'lowercase' | 'uppercase' | 'number';
   label: string;
   test: (password: string) => boolean;

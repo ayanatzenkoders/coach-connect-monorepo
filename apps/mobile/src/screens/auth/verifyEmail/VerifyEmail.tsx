@@ -22,7 +22,6 @@ const VerifyEmail: React.FC<Props> = () => {
       sendOnOpen // sign-up already sent one; the server then answers "wait", which just starts the countdown
       onSendCode={s.sendCode}
       onSubmit={s.verify}
-      submitLabel="Verify"
       onBack={s.onBack}
     />
   );

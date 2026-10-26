@@ -1,8 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import { createApp, resetDb, api, login, bearer, seedUser, PASSWORD } from './helpers.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { USER_BANNED } from '../src/moderation/user-banned.event.js';
 
 describe('RBAC and bans', () => {
   let app: INestApplication;
@@ -63,18 +61,15 @@ describe('RBAC and bans', () => {
 
   it('BAN: takes effect on the very next request and shuts every door', async () => {
     const { admin, member, adminTok, memberTok } = await setup();
-    await prisma.pushToken.create({ data: { userId: member.id, platform: 'ANDROID_FCM', token: 'fcm-token-1', deviceId: 'device-aaaaaaaa' } });
     // second device
     const second = (await login(app, 'member@x.com', 'device-bbbbbbbb')).body;
-    const events: unknown[] = [];
-    app.get(EventEmitter2).on(USER_BANNED, (e) => events.push(e));
 
     // before the ban: works
     expect((await api(app).get('/auth/me').set(bearer(memberTok.accessToken))).status).toBe(200);
 
     const ban = await api(app).post(`/admin/users/${member.id}/ban`).set(bearer(adminTok.accessToken)).send({ reason: 'Harassment of a coach', note: 'report R-118' });
     expect(ban.status).toBe(200);
-    expect(ban.body).toMatchObject({ alreadyBanned: false, revokedSessions: 2, deletedPushTokens: 1 });
+    expect(ban.body).toMatchObject({ alreadyBanned: false, revokedSessions: 2 });
 
     // 1) the still-unexpired access tokens stop working immediately, on both devices
     for (const tok of [memberTok, second]) {
@@ -88,12 +83,9 @@ describe('RBAC and bans', () => {
     expect(again.status).toBe(403);
     expect(again.body.code).toBe('ACCOUNT_BANNED');
     // 4) side effects
-    expect(await prisma.pushToken.count({ where: { userId: member.id } })).toBe(0);
     expect(await prisma.session.count({ where: { userId: member.id, revokedAt: null } })).toBe(0);
     const audit = await prisma.auditLog.findFirstOrThrow({ where: { action: 'user.ban' } });
     expect(audit).toMatchObject({ actorId: admin.id, targetId: member.id });
-    // 5) the realtime hook fired (sockets/calls will listen to this in later phases)
-    expect(events).toHaveLength(1);
   });
 
   it('BAN: reports ACCOUNT_BANNED even if the session was somehow still alive', async () => {

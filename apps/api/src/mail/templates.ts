@@ -2,7 +2,7 @@
 
 const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-export interface CodeEmailInput {
+interface CodeEmailInput {
   /** e.g. "verification" or "password reset". Used as: "Your {label} code is 123456". */
   label: string;
   heading: string;

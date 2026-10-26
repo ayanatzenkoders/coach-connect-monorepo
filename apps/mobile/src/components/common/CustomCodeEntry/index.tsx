@@ -13,7 +13,7 @@ import type { CustomCodeEntryProps } from './interface';
  * A full screen for typing an emailed 6-digit code: six boxes, a resend countdown, and a button
  * that appears once all six digits are in. Used for "verify your email" and "reset your password".
  */
-export function CustomCodeEntry({ title, description, onSendCode, sendOnOpen, initialResendSeconds, onSubmit, submitLabel = 'Verify', onBack }: CustomCodeEntryProps) {
+export function CustomCodeEntry({ title, description, onSendCode, sendOnOpen, initialResendSeconds, onSubmit, onBack }: CustomCodeEntryProps) {
   const s = useCodeEntry({ onSendCode, sendOnOpen, initialResendSeconds, onSubmit });
 
   return (
@@ -38,7 +38,7 @@ export function CustomCodeEntry({ title, description, onSendCode, sendOnOpen, in
 
       <View style={styles.bottom}>
         {/* Only offered once all six digits are typed. */}
-        {s.complete ? <CustomButton title={submitLabel} onPress={s.submit} loading={s.busy} /> : null}
+        {s.complete ? <CustomButton title="Verify" onPress={s.submit} loading={s.busy} /> : null}
       </View>
     </CustomWrapper>
   );

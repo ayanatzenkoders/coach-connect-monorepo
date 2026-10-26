@@ -17,5 +17,4 @@ export const PeopleQuerySchema = z.strictObject({
   /** Page size. Capped so one request can never return thousands of rows. */
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
-export type PeopleQuery = z.input<typeof PeopleQuerySchema>;
 export type PeopleQueryParsed = z.infer<typeof PeopleQuerySchema>;

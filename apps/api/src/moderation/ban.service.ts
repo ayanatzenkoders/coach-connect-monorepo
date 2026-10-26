@@ -1,16 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditService } from '../audit/audit.service.js';
 import { AppException } from '../common/errors/app.exception.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { USER_BANNED, UserBannedEvent } from './user-banned.event.js';
 
 @Injectable()
 export class BanService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    private readonly events: EventEmitter2,
   ) {}
 
   /**
@@ -30,7 +27,7 @@ export class BanService {
     if (target.role === 'ADMIN' || target.role === 'SUPPORT') {
       throw new AppException(403, 'CANNOT_BAN_STAFF', 'Staff accounts cannot be banned here.');
     }
-    if (target.isBanned) return { alreadyBanned: true, revokedSessions: 0, deletedPushTokens: 0 };
+    if (target.isBanned) return { alreadyBanned: true, revokedSessions: 0 };
 
     const now = new Date();
     const result = await this.prisma.$transaction(async (tx) => {
@@ -42,7 +39,6 @@ export class BanService {
         where: { userId: targetId, revokedAt: null },
         data: { revokedAt: now, revokedReason: 'BANNED' },
       });
-      const pushes = await tx.pushToken.deleteMany({ where: { userId: targetId } });
       await this.audit.record(
         {
           actorId,
@@ -53,10 +49,9 @@ export class BanService {
         },
         tx,
       );
-      return { alreadyBanned: false, revokedSessions: sessions.count, deletedPushTokens: pushes.count };
+      return { alreadyBanned: false, revokedSessions: sessions.count };
     });
 
-    this.events.emit(USER_BANNED, new UserBannedEvent(targetId, actorId, reason));
     return result;
   }
 

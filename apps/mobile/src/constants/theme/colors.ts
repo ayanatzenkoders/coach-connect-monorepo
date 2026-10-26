@@ -15,8 +15,6 @@ export const COLORS = {
   primaryTint: '#E3EDE8',
   onPrimary: '#FFFFFF',
   error: '#B3261E',
-  errorTint: '#F9E6E4',
-  errorInk: '#8E1F18',
   warningInk: '#7F3D0A',
   warningTint: '#F7EBDD',
 } as const;

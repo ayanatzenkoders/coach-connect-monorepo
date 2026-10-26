@@ -12,10 +12,10 @@ import { apiRequest } from './api';
  * use the functions below, so they will not change when that happens.
  */
 
-export type StaffRole = 'SUPPORT' | 'ADMIN';
+type StaffRole = 'SUPPORT' | 'ADMIN';
 
 /** A signed-in staff member: the shared User, narrowed to the two staff roles. */
-export type StaffUser = Omit<User, 'role'> & { role: StaffRole };
+type StaffUser = Omit<User, 'role'> & { role: StaffRole };
 
 type LoginResult = Omit<AuthResult, 'user'> & { user: StaffUser };
 
@@ -30,7 +30,7 @@ const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 
 /** A random id for this browser; the backend keeps one live session per device id. Not a secret. */
-export function getDeviceId(): string {
+function getDeviceId(): string {
   try {
     const saved = localStorage.getItem('cc_admin_device');
     if (saved) return saved;

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type ToastTone = 'error' | 'success' | 'info';
+type ToastTone = 'error' | 'success' | 'info';
 
 interface ToastState {
   /** Only one toast is shown at a time; a new one replaces the old. `id` changes every time, so the host restarts its timer. */

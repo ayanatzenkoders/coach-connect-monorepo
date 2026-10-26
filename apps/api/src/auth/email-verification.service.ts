@@ -5,9 +5,6 @@ import { verifyEmailEmail } from '../mail/templates.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CODE_TTL_SECONDS, OneTimeCodeService, RESEND_COOLDOWN_SECONDS } from './one-time-code.service.js';
 
-// Re-exported so existing imports (and tests) keep working.
-export { CODE_TTL_SECONDS, MAX_ATTEMPTS, RESEND_COOLDOWN_SECONDS } from './one-time-code.service.js';
-
 const PURPOSE = 'EMAIL_VERIFICATION' as const;
 
 /** Proves a user owns their email address with a 6-digit code (design "04 Verify email"). */
