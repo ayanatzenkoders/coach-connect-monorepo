@@ -1,15 +1,18 @@
-# Local development database. Start with: docker compose up -d
+# Local development database ONLY. Start with: docker compose up -d
+# The default password below is a throwaway for local dev. Staging/production use
+# managed databases with real secrets that are never stored in git.
 services:
   postgres:
     image: postgres:16
     container_name: coachconnect-db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: coach
-      POSTGRES_PASSWORD: coach_dev_password
-      POSTGRES_DB: coachconnect
+      POSTGRES_USER: ${POSTGRES_USER:-coach}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-coach_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-coachconnect}
     ports:
-      - "5432:5432"
+      # 127.0.0.1 = reachable only from this machine, not from the Wi-Fi/LAN.
+      - "127.0.0.1:5432:5432"
     volumes:
       - coachconnect-pgdata:/var/lib/postgresql/data
 
