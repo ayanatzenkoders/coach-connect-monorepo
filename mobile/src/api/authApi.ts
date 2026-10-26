@@ -64,5 +64,16 @@ export const authApi = {
   verifyEmail: (accessToken: string, code: string) =>
     apiRequest<{ emailVerified: boolean }>('/auth/email/verify', { method: 'POST', accessToken, body: { code } }),
 
+  /** "Forgot password" step 1: email me a code. Fails with ACCOUNT_NOT_FOUND (404) when no account has this email. */
+  forgotPassword: (email: string) => apiRequest<CodeSent>('/auth/password/forgot', { method: 'POST', body: { email } }),
+
+  /** Step 2: check the emailed code. Fails with INVALID_CODE (data.attemptsLeft), CODE_EXPIRED or CODE_LOCKED. */
+  verifyResetCode: (input: { email: string; code: string }) =>
+    apiRequest<{ resetToken: string; expiresInSeconds: number }>('/auth/password/verify-code', { method: 'POST', body: input }),
+
+  /** Step 3: the token from step 2 + the new password. Fails with RESET_TOKEN_INVALID if the token expired or was used. */
+  resetPassword: (input: { resetToken: string; newPassword: string }) =>
+    apiRequest<{ ok: boolean }>('/auth/password/reset', { method: 'POST', body: input }),
+
   me: (accessToken: string) => apiRequest<Me>('/auth/me', { accessToken }),
 };

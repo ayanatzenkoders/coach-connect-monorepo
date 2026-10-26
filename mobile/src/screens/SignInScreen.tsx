@@ -3,6 +3,7 @@ import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text
 import { Button } from '../components/Button';
 import { Logo } from '../components/Logo';
 import { TextField } from '../components/TextField';
+import { showApiError } from '../toast/toastStore';
 import { colors, MIN_TOUCH, radius, spacing, text } from '../theme';
 
 interface Props {
@@ -14,15 +15,17 @@ interface Props {
   showSocial?: boolean;
   /** Why the user is back here, e.g. "Your session ended". Shown above the form. */
   notice?: string;
+  /** "warning" for problems (session ended), "success" for good news (password updated). */
+  noticeTone?: 'warning' | 'success';
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Sign in screen (design "02 Sign in"). */
-export function SignInScreen({ onSignIn, onCreateAccount, onForgotPassword, showSocial = false, notice }: Props) {
+export function SignInScreen({ onSignIn, onCreateAccount, onForgotPassword, showSocial = false, notice, noticeTone = 'warning' }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [errors, setErrors] = useState<{ email?: string; password?: string; form?: string }>({});
+  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   const [busy, setBusy] = useState(false);
 
   async function submit() {
@@ -37,7 +40,7 @@ export function SignInScreen({ onSignIn, onCreateAccount, onForgotPassword, show
     try {
       await onSignIn(email.trim(), password);
     } catch (e) {
-      setErrors({ form: e instanceof Error ? e.message : 'Something went wrong.' });
+      showApiError(e); // errors from the server appear as a toast
     } finally {
       setBusy(false);
     }
@@ -71,14 +74,9 @@ export function SignInScreen({ onSignIn, onCreateAccount, onForgotPassword, show
         )}
 
         <View style={styles.form}>
-          {notice && !errors.form ? (
-            <View accessibilityRole="alert" style={styles.notice}>
-              <Text style={styles.noticeText}>{notice}</Text>
-            </View>
-          ) : null}
-          {errors.form ? (
-            <View accessibilityRole="alert" style={styles.banner}>
-              <Text style={styles.bannerText}>{errors.form}</Text>
+          {notice ? (
+            <View accessibilityRole="alert" style={[styles.notice, noticeTone === 'success' && styles.noticeSuccess]}>
+              <Text style={[styles.noticeText, noticeTone === 'success' && styles.noticeTextSuccess]}>{notice}</Text>
             </View>
           ) : null}
           <TextField
@@ -86,7 +84,7 @@ export function SignInScreen({ onSignIn, onCreateAccount, onForgotPassword, show
             value={email}
             onChangeText={(v) => {
               setEmail(v);
-              setErrors((e) => ({ ...e, email: undefined, form: undefined })); // typing clears old errors
+              setErrors((e) => ({ ...e, email: undefined })); // typing clears old errors
             }}
             error={errors.email}
             keyboardType="email-address"
@@ -100,7 +98,7 @@ export function SignInScreen({ onSignIn, onCreateAccount, onForgotPassword, show
             value={password}
             onChangeText={(v) => {
               setPassword(v);
-              setErrors((e) => ({ ...e, password: undefined, form: undefined }));
+              setErrors((e) => ({ ...e, password: undefined }));
             }}
             error={errors.password}
             secureTextEntry
@@ -109,12 +107,10 @@ export function SignInScreen({ onSignIn, onCreateAccount, onForgotPassword, show
             textContentType="password"
             returnKeyType="go"
             onSubmitEditing={submit}
-            labelRight={
-              <Pressable accessibilityRole="link" onPress={onForgotPassword} hitSlop={8} style={styles.linkTouch}>
-                <Text style={text.link}>Forgot password?</Text>
-              </Pressable>
-            }
           />
+          <Pressable accessibilityRole="link" accessibilityLabel="Forgot password?" onPress={onForgotPassword} hitSlop={8} style={styles.forgot}>
+            <Text style={text.link}>Forgot password?</Text>
+          </Pressable>
           <View style={styles.submit}>
             <Button title="Sign in" onPress={submit} loading={busy} />
           </View>
@@ -148,11 +144,12 @@ const styles = StyleSheet.create({
   dividerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   line: { flex: 1, height: 1, backgroundColor: colors.divider },
   form: { gap: spacing.lg },
-  submit: { marginTop: spacing.sm },
-  banner: { backgroundColor: colors.errorTint, borderRadius: radius.control, padding: spacing.md },
-  bannerText: { color: colors.errorInk, fontSize: 14 },
+  forgot: { alignSelf: 'flex-end', minHeight: MIN_TOUCH, justifyContent: 'center', marginTop: -spacing.sm },
+  submit: { marginTop: 0 },
   notice: { backgroundColor: colors.warningTint, borderRadius: radius.control, padding: spacing.md },
   noticeText: { color: colors.warningInk, fontSize: 14 },
+  noticeSuccess: { backgroundColor: colors.primaryTint },
+  noticeTextSuccess: { color: colors.primaryPressed },
   linkTouch: { minHeight: MIN_TOUCH, justifyContent: 'center' },
   footer: { marginTop: 'auto', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6 },
   footerText: { fontSize: 15, color: colors.inkSecondary },
