@@ -11,6 +11,8 @@ export class ApiError extends Error {
     public readonly status: number,
     public readonly code: string,
     message: string,
+    /** The whole answer body, for extra fields such as `retryAfterSeconds` or `attemptsLeft`. */
+    public readonly data: Record<string, unknown> = {},
   ) {
     super(message);
     this.name = 'ApiError';
@@ -63,7 +65,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     const err = (data ?? {}) as { code?: string; message?: string | string[] };
     // Validation errors from the backend come as a list of messages; show the first one.
     const message = Array.isArray(err.message) ? err.message[0] : err.message;
-    throw new ApiError(response.status, err.code ?? 'UNKNOWN_ERROR', message ?? 'Something went wrong.');
+    throw new ApiError(response.status, err.code ?? 'UNKNOWN_ERROR', message ?? 'Something went wrong.', (data ?? {}) as Record<string, unknown>);
   }
   return data as T;
 }
