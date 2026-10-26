@@ -68,9 +68,13 @@ export class PeopleService {
     const last = rows[rows.length - 1];
     const nextCursor = hasMore && last ? encodeCursor(last.name, last.id) : null;
 
+    // The specialty chips on the Coaches tab: every specialty an approved coach offers.
+    const specialties = isCoaches ? await this.coachSpecialties() : undefined;
+
     return {
       total,
       nextCursor,
+      ...(specialties && { specialties }),
       items: rows.map((u) => ({
         id: u.id,
         name: u.name,
@@ -82,6 +86,17 @@ export class PeopleService {
         }),
       })),
     };
+  }
+
+  /** Distinct specialties of visible coaches, A to Z. `unnest` turns each coach's array into rows. */
+  private async coachSpecialties(): Promise<string[]> {
+    const rows = await this.prisma.$queryRaw<{ s: string }[]>`
+      SELECT DISTINCT unnest(cp.specialties) AS s
+      FROM coach_profiles cp
+      JOIN users u ON u.id = cp.user_id
+      WHERE cp.approved AND NOT u.is_banned AND u.deleted_at IS NULL
+      ORDER BY s`;
+    return rows.map((r) => r.s);
   }
 }
 

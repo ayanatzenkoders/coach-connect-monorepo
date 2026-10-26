@@ -124,6 +124,20 @@ describe('GET /people', () => {
       expect(names(await get('me@x.com', 'kind=coaches&q=bru&available=true'))).toEqual([]);
     });
 
+    it('lists the available specialties for the filter chips (coaches tab only)', async () => {
+      await seedUser(prisma, 'me@x.com', 'MEMBER', 'Me');
+      const a = await seedUser(prisma, 'a@x.com', 'COACH', 'Amara');
+      const p = await seedUser(prisma, 'p@x.com', 'COACH', 'Pending');
+      await prisma.coachProfile.createMany({
+        data: [
+          { userId: a.id, specialties: ['Stress', 'Career'], approved: true },
+          { userId: p.id, specialties: ['Hidden'], approved: false },
+        ],
+      });
+      expect((await get('me@x.com', 'kind=coaches')).body.specialties).toEqual(['Career', 'Stress']);
+      expect((await get('me@x.com', 'kind=members')).body.specialties).toBeUndefined();
+    });
+
     it('pages with a cursor: no repeats, no gaps, then nextCursor is null', async () => {
       await seedUser(prisma, 'me@x.com', 'MEMBER', 'Me');
       for (const n of ['Ann', 'Ben', 'Cam', 'Dee', 'Eli']) await seedUser(prisma, `${n}@x.com`.toLowerCase(), 'MEMBER', n);
