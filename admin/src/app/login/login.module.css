@@ -1,0 +1,146 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 16px;
+  gap: 28px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tile {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.name {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.badge {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #e4e7e1;
+  color: var(--ink-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface);
+  border: 1px solid var(--divider);
+  border-radius: 16px;
+  padding: 32px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.heading {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.heading h1 {
+  font-size: 26px;
+}
+
+.heading p {
+  margin: 0;
+  font-size: 15px;
+  color: var(--ink-secondary);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.field input {
+  height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0 14px;
+  font-size: 15px;
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.field input:focus {
+  outline: none;
+  border: 2px solid var(--primary);
+  padding: 0 13px;
+}
+
+.field input[aria-invalid='true'] {
+  border: 2px solid var(--error);
+  padding: 0 13px;
+}
+
+.error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--error);
+}
+
+.banner {
+  background: var(--error-tint);
+  color: var(--error-ink);
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 14px;
+}
+
+.submit {
+  height: 44px;
+  border: none;
+  border-radius: 10px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.submit:hover:not(:disabled) {
+  background: var(--primary-pressed);
+}
+
+.submit:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.note {
+  margin: 0;
+  max-width: 420px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-secondary);
+}

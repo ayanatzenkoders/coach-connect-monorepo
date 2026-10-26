@@ -16,3 +16,9 @@ npm-debug.log*
 # Editors
 .idea/
 .vscode/
+
+# Prisma client is generated (npm run prisma:generate), never committed
+backend/src/generated/
+
+# Client documents and design exports stay local (PRD, UI export, plans). Only README.md and knowledge.md are shared.
+Requirement & Design/

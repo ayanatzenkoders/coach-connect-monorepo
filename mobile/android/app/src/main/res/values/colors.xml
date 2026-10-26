@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Coach Connect green (same as theme.colors.primary) -->
+    <color name="launch_background">#1D5C4C</color>
+    <color name="ic_launcher_background">#1D5C4C</color>
+</resources>

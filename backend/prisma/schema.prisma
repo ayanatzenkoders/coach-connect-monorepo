@@ -1,0 +1,231 @@
+// Coach Connect database schema (Phase 1).
+// Indexes that Prisma cannot express (partial indexes, CHECK constraints) are added by hand
+// in the migration SQL. They are marked "RAW" below so you know where to look.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────── Enums (every state, and what it means) ─────────────────────────
+
+/// Who the account is. Decides which screens/APIs are allowed. Stored on the user row,
+/// and read from the database on every request (never trusted from the token).
+enum Role {
+  MEMBER // Paying app user. Can call coaches/members, chat, be added to coach calls.
+  COACH // Approved coach (created/approved by an Admin). Receives calls. Never needs a subscription.
+  SUPPORT // Operations staff, web panel only, READ-ONLY (cannot ban, edit or delete).
+  ADMIN // Operations lead, web panel only, can do everything incl. ban/unban.
+}
+
+/// Which client a login session belongs to. Mobile and admin tokens are not interchangeable.
+enum SessionAudience {
+  MOBILE // Member/Coach app.
+  ADMIN // Web admin panel (Support/Admin).
+}
+
+/// Why a session stopped working. Kept for audits ("why was this user logged out?").
+enum SessionRevokeReason {
+  LOGOUT // User tapped sign out.
+  REPLACED // Same device signed in again; the old session was closed.
+  REUSE_DETECTED // An already-used refresh token came back: possible theft, session killed.
+  BANNED // Admin banned the user.
+  ADMIN_REVOKED // Admin signed the device out.
+  PASSWORD_CHANGED // User changed/reset password: all other devices are signed out.
+}
+
+/// State of a user's access to paid features. "No row" means never subscribed.
+/// Only EXPIRED and "no row" are blocked from calling.
+enum SubscriptionStatus {
+  TRIAL // In the free trial period. Has access.
+  ACTIVE // Paid and current. Has access.
+  GRACE_PERIOD // Payment failed but the store is still retrying. Has access for now.
+  CANCELLED_ACTIVE // User turned off renewal but the paid period has not ended. Has access until expires_at.
+  EXPIRED // Period ended or refunded. NO access.
+}
+
+/// Where the subscription state came from.
+enum SubscriptionSource {
+  REVENUECAT // Normal: store purchase, synced from RevenueCat.
+  ADMIN_OVERRIDE // An Admin granted free access (e.g. promo).
+}
+
+/// Which push channel a token belongs to.
+enum PushPlatform {
+  IOS_VOIP // Apple VoIP push (PushKit): rings the phone for calls.
+  IOS_APNS // Normal Apple push: chat/summary notifications.
+  ANDROID_FCM // Firebase push for Android (calls + chat).
+}
+
+/// What a one-time code is for.
+enum OneTimeCodePurpose {
+  EMAIL_VERIFICATION // 6-digit code emailed after sign-up to prove the email is real.
+  PASSWORD_RESET // 6-digit code emailed by "Forgot password" (built in a later step).
+}
+
+// ───────────────────────── Models ─────────────────────────
+
+model User {
+  /// uuid(7) = time-ordered UUID: new rows land at the end of the primary-key index (faster
+  /// inserts, less index bloat than random uuid v4) and ids are not guessable counters.
+  id              String    @id @default(uuid(7)) @db.Uuid
+  /// Always stored lowercase (CHECK constraint, RAW). Uniqueness is a PARTIAL unique index
+  /// (RAW): unique only among accounts that are not deleted.
+  email           String
+  /// null for social-login-only accounts (Google/Apple, added later).
+  passwordHash    String?   @map("password_hash")
+  name            String
+  role            Role      @default(MEMBER)
+  isBanned        Boolean   @default(false) @map("is_banned")
+  bannedAt        DateTime? @map("banned_at") @db.Timestamptz(3)
+  banReason       String?   @map("ban_reason")
+  bannedById      String?   @map("banned_by_id") @db.Uuid
+  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz(3)
+  /// Soft delete: set when the user deletes their account (data is anonymised separately).
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sessions       Session[]
+  coachProfile   CoachProfile?
+  subscription   Subscription?
+  pushTokens     PushToken[]
+  oneTimeCodes   OneTimeCode[]
+  blocksMade     Block[]       @relation("Blocker")
+  blocksReceived Block[]       @relation("Blocked")
+
+  @@map("users")
+}
+
+model Session {
+  id              String               @id @default(uuid(7)) @db.Uuid
+  userId          String               @map("user_id") @db.Uuid
+  audience        SessionAudience
+  /// Stable id the app generates once per install. One live session per device (RAW partial unique).
+  deviceId        String               @map("device_id")
+  deviceName      String?              @map("device_name")
+  /// sha256 of the CURRENT refresh secret. The secret itself is never stored.
+  refreshHash     String               @map("refresh_hash")
+  /// sha256 of the PREVIOUS secret, used to detect reuse (theft) and to allow a short retry grace.
+  prevRefreshHash String?              @map("prev_refresh_hash")
+  rotatedAt       DateTime             @default(now()) @map("rotated_at") @db.Timestamptz(3)
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSeenAt      DateTime             @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  /// Inactivity limit; pushed forward on every refresh.
+  expiresAt       DateTime             @map("expires_at") @db.Timestamptz(3)
+  revokedAt       DateTime?            @map("revoked_at") @db.Timestamptz(3)
+  revokedReason   SessionRevokeReason? @map("revoked_reason")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId]) // "all sessions of a user" (ban, logout-all, active devices screen)
+  @@map("sessions")
+}
+
+model CoachProfile {
+  userId      String   @id @map("user_id") @db.Uuid
+  bio         String   @default("")
+  specialties String[] @default([])
+  /// Admin has approved this coach. Unapproved coaches are invisible in People.
+  approved    Boolean  @default(false)
+  /// Coach switched "available" on. Only available coaches show a Call button.
+  available   Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// GIN = index for "does this array contain X" (specialty filter).
+  @@index([specialties], type: Gin)
+  @@map("coach_profiles")
+}
+
+model Subscription {
+  id          String             @id @default(uuid(7)) @db.Uuid
+  /// One row per user (unique). No row = never subscribed.
+  userId      String             @unique @map("user_id") @db.Uuid
+  status      SubscriptionStatus
+  source      SubscriptionSource @default(REVENUECAT)
+  /// "monthly" | "yearly" (store product id).
+  product     String?
+  /// End of the current paid/trial period. Access holds until this moment for CANCELLED_ACTIVE.
+  expiresAt   DateTime?          @map("expires_at") @db.Timestamptz(3)
+  /// Last RevenueCat event id handled: lets the webhook ignore duplicates (idempotency).
+  lastEventId String?            @map("last_event_id")
+  createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+/// "A has blocked B". Hidden from each other in People/search/calls/chat, in both directions.
+model Block {
+  blockerId String   @map("blocker_id") @db.Uuid
+  blockedId String   @map("blocked_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  blocker User @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@id([blockerId, blockedId]) // also stops duplicate blocks; serves "who did I block"
+  @@index([blockedId]) // reverse lookup: "who blocked me" (needed for the either-direction check)
+  @@map("blocks")
+}
+
+model PushToken {
+  id         String       @id @default(uuid(7)) @db.Uuid
+  userId     String       @map("user_id") @db.Uuid
+  platform   PushPlatform
+  token      String       @unique
+  deviceId   String       @map("device_id")
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastUsedAt DateTime     @default(now()) @map("last_used_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_tokens")
+}
+
+/// A short code we email to a user (verify email, reset password).
+/// We store only an HMAC of the code, never the code itself.
+model OneTimeCode {
+  id         String             @id @default(uuid(7)) @db.Uuid
+  userId     String             @map("user_id") @db.Uuid
+  purpose    OneTimeCodePurpose
+  codeHash   String             @map("code_hash")
+  expiresAt  DateTime           @map("expires_at") @db.Timestamptz(3)
+  /// Wrong guesses so far. After 5 the code is locked and a new one must be requested.
+  attempts   Int                @default(0)
+  /// Set when the code was used OR replaced by a newer one. null = still active.
+  consumedAt DateTime?          @map("consumed_at") @db.Timestamptz(3)
+  createdAt  DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("one_time_codes")
+}
+
+/// Who did what to whom. Written for every admin write (ban, unban, ...) and later every
+/// transcript view. Append-only: the app never updates or deletes rows.
+model AuditLog {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  action     String // e.g. "user.ban", "user.unban"
+  targetType String?  @map("target_type") // e.g. "user"
+  targetId   String?  @map("target_id")
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([actorId, createdAt]) // "what did this admin do, newest first"
+  @@index([targetType, targetId, createdAt]) // "history of this user"
+  @@index([createdAt]) // global feed
+  @@map("audit_log")
+}
