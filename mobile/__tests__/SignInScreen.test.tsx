@@ -48,6 +48,15 @@ describe('SignInScreen', () => {
     expect(allText(tree)).toEqual(expect.arrayContaining(['Enter a valid email address.', 'Enter your password.']));
   });
 
+  it('removes an old error as soon as the user edits that field', async () => {
+    const { tree } = await render();
+    await press(tree, 'Sign in'); // both fields empty: errors appear
+    expect(allText(tree)).toContain('Enter a valid email address.');
+    await type(tree, 'Email', 'sara@coachconnect.dev');
+    expect(allText(tree)).not.toContain('Enter a valid email address.');
+    expect(allText(tree)).toContain('Enter your password.'); // the other field's error stays
+  });
+
   it('rejects an email without a domain', async () => {
     const { tree, onSignIn } = await render();
     await type(tree, 'Email', 'sara@');
