@@ -9,35 +9,50 @@ Related docs: `Requirement & Design/Coach Connect Detailed Plan.md` (what to bui
 
 ---
 
-## 1. Repo map
+## 1. Repo map (monorepo)
+
+We follow the Zenkoders boilerplate layout (`mobile-app-boilerplate`, branch `mono-repo`): **pnpm workspaces + Turborepo**.
 
 | Path | What |
 |------|------|
-| `mobile/` | React Native CLI app (TypeScript). iOS + Android. |
-| `backend/` | NestJS API (TypeScript, ESM). Prisma + Postgres. |
-| `admin/` | Next.js admin panel (TypeScript). Sign-in + dashboard shell so far. |
+| `apps/mobile` | React Native CLI app (TypeScript). iOS + Android. Package `@coach-connect/mobile`. |
+| `apps/api` | NestJS API (TypeScript, ESM). Prisma + Postgres. Package `@coach-connect/api`. |
+| `apps/web` | Next.js admin panel (TypeScript). Package `@coach-connect/web`. |
+| `packages/shared` | `@coach-connect/shared`: zod schemas, `API_ROUTES`, response types, plain constants. Built with tsup to ESM + CJS. |
+| `packages/tsconfig` | `@coach-connect/tsconfig`: base `tsconfig`. |
 | `docker-compose.yml` | Local Postgres for people who use Docker. Bound to `127.0.0.1` only. |
-| `Requirement & Design/` | PRD, UI design export, implementation plans. |
-| `knowledge.md` | This file. |
+| `Requirement & Design/` | PRD, UI design export, implementation plans (git-ignored, never pushed). |
+| `knowledge.md` / `CLAUDE.md` | This file (why + lessons) and the rules for changing the code. |
+
+### 1.1 Monorepo conventions
+- **pnpm 10** (`packageManager` in the root `package.json`; get it with `corepack enable`), `node-linker=hoisted` in `.npmrc` because React Native tooling (Metro, autolinking, CocoaPods) expects a flat `node_modules`. Install once, at the repo root. Never run `npm install` inside an app.
+- **Turborepo** runs the same script names everywhere: `dev`, `build`, `lint`, `typecheck`, `test`, `clean`. `pnpm turbo typecheck lint test` checks the whole repo; `turbo` builds `packages/shared` first (`^build`).
+- **One version for shared libraries** lives in the pnpm *catalog* (`pnpm-workspace.yaml`): `"zod": "catalog:"`. React is pinned to ONE version (19.3.0) for web and mobile.
+- **`@coach-connect/shared` is the contract between apps.** The API validates requests with its zod schemas, the mobile forms and the web panel use the same route list and types. Import **subpaths** on mobile (`/api`, `/constants`, `/types`): Metro does not tree-shake, so the root barrel would add zod to the app for a single constant.
+- **Native dependency versions are pinned exactly** in `apps/mobile/package.json` where CocoaPods cares (`@livekit/react-native-webrtc` 150.1.0, `@react-native-firebase/*` 27.0.0). pnpm has no lockfile history from npm, and a newer patch of livekit asked for a WebRTC pod we could not install. Bump them on purpose, then `pod install`.
+- Ports stay as before: API 3000, web 3001, Metro 8081 (the boilerplate uses 4000/3000).
 
 ## 2. Run it locally
 
 ```bash
-# Database (pick one)
-brew install postgresql@16 && brew services start postgresql@16     # then create role/db once (see Section 3)
-docker compose up -d                                                 # or this
+corepack enable                                                      # once: gives you pnpm
+brew install postgresql@16 && brew services start postgresql@16     # or: docker compose up -d   (then create role/db once, see below)
 
-# Backend
-cd backend
-cp .env.example .env        # then set JWT_ACCESS_SECRET:  openssl rand -base64 48
-npm install                 # also runs `prisma generate`
-npm run prisma:migrate      # creates/updates tables
-npm run db:seed             # dev users; every password is Password123!
-npm run start:dev           # http://localhost:3000/health
+pnpm install                                   # once, at the repo root (also runs `prisma generate`)
+cd apps/api
+cp .env.example .env                           # then set JWT_ACCESS_SECRET:  openssl rand -base64 48
+pnpm prisma:migrate                            # creates/updates tables
+pnpm db:seed                                   # dev users; every password is Password123!
+pnpm dev                                       # http://localhost:3000/health   (OpenAPI page: /docs)
+
+# Mobile (two terminals)
+cd apps/mobile/ios && pod install && cd ..     # once, and after changing native dependencies
+pnpm dev                                       # Metro
+pnpm ios                                       # build + run on the simulator
 
 # Tests
-npm test                                              # fast unit tests
-npx vitest run --config ./vitest.config.e2e.ts        # integration tests (uses coachconnect_test DB)
+pnpm turbo typecheck lint test                 # everything (unit tests only; no database needed)
+cd apps/api && pnpm test:e2e                   # integration tests (uses the coachconnect_test DB)
 ```
 
 Seeded logins (password `Password123!`): `admin@coachconnect.dev` (ADMIN, use `/admin/auth/login`), `support@coachconnect.dev` (SUPPORT),
@@ -49,24 +64,27 @@ CREATE ROLE coach WITH LOGIN PASSWORD 'coach_dev_password' CREATEDB;  -- CREATED
 CREATE DATABASE coachconnect OWNER coach;
 CREATE DATABASE coachconnect_test OWNER coach;                         -- used only by integration tests
 ```
-Then once: `DATABASE_URL=postgresql://coach:coach_dev_password@localhost:5432/coachconnect_test npx prisma migrate deploy`.
+Then once: `DATABASE_URL=postgresql://coach:coach_dev_password@localhost:5432/coachconnect_test pnpm prisma migrate deploy` (from `apps/api`).
 
 ## 3. Tooling gotchas we hit (save yourself the time)
 
 | Symptom | Cause / fix |
 |---------|-------------|
 | `pod install` crashes with `Unicode Normalization not appropriate for ASCII-8BIT` | Run with `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8`. |
-| iOS link error `_kUTTypeImage` in `react-native-image-picker` | Dynamic frameworks need Apple frameworks linked by hand; fixed in `mobile/ios/Podfile` `post_install`. |
+| iOS link error `_kUTTypeImage` in `react-native-image-picker` | Dynamic frameworks need Apple frameworks linked by hand; fixed in `apps/mobile/ios/Podfile` `post_install`. |
 | Podfile uses dynamic frameworks | Required by React Native Firebase v27 (SPM). |
-| `npm install` fails with `edgesOut` in `backend/` | Use `--legacy-peer-deps` (Nest 12 template has a peer conflict). |
-| `npx prisma` shows a totally different CLI (v8 rc) | npm's `latest` tag was a release candidate. Pin `prisma@7.10.1` (same version as `@prisma/client`). |
+| `pnpm install` says "Ignored build scripts" | pnpm 10 blocks install scripts. Allow-listed ones are in `pnpm-workspace.yaml` (`onlyBuiltDependencies`: argon2, prisma, esbuild...). Add a package there only if it really needs its script. |
+| `tsup` fails with TS5101 `baseUrl is deprecated` | TypeScript 6. `packages/tsconfig/base.json` sets `"ignoreDeprecations": "6.0"`. |
+| `pod install`: "could not find compatible versions for LiveKitWebRTC" | A newer patch of `@livekit/react-native-webrtc` wants a WebRTC pod we cannot fetch. Native modules are pinned exactly in `apps/mobile/package.json`; keep them pinned. |
+| Jest: "Unexpected token 'export'" from `@react-navigation` | It ships ES modules. `apps/mobile/jest.config.js` adds `@react-navigation` to `transformIgnorePatterns`. |
+| `npx prisma` shows a totally different CLI (v8 rc) | Run Prisma through the project: `pnpm prisma ...` inside `apps/api` (pinned to 7.10.1, same as `@prisma/client`). A bare `npx prisma` outside `apps/api` downloads npm's `latest`, a release candidate. |
 | `zsh: command not found: psql -h ...` | zsh does not word-split a variable holding a command. Use a shell function, not a string variable. |
 | `curl -H $J` sends no JSON content type in zsh | Same reason. Quote headers inline: `-H "Content-Type: application/json"`. |
 | Nest 12 template uses **Vitest** (not Jest) and ESM | Imports need the `.js` suffix even in `.ts` files. Test globals work (`describe`, `it`). |
 | `EADDRINUSE: address already in use :::3000` (backend) or `:::8081` (Metro) | An earlier server is still running (often one started in a background session). Find it: `lsof -nP -iTCP:3000 -sTCP:LISTEN`, check the command, then `kill <pid>`. Do the same for 8081 (Metro) and 3001 (admin). Ports: backend 3000, admin 3001, Metro 8081. |
 | `pod install` after adding a native package (e.g. `react-native-svg`) | Required, then rebuild the iOS app. Metro hot reload only covers JavaScript. |
-| Times stored 5 h off in Postgres (UTC+5 machine) | Prisma sends dates as UTC text without an offset; a non-UTC connection stores the wrong instant. Fixed by `options: '-c timezone=UTC'` in `PrismaPg` (`prisma.service.ts`, `seed.ts`). Regression test: `test/timezone.e2e-spec.ts`. Rows written before the fix in a dev DB are shifted; `npx prisma migrate reset` clears them. |
-| App stuck on splash, red "required entitlement isn't present" | Keychain needs a SIGNED app. Do not build the simulator app with `CODE_SIGNING_ALLOWED=NO`; use `CODE_SIGN_IDENTITY="-" CODE_SIGNING_ALLOWED=YES` (normal Xcode/`npm run ios` builds are already signed). The app now also falls back to signed-out instead of hanging if Keychain fails. |
+| Times stored 5 h off in Postgres (UTC+5 machine) | Prisma sends dates as UTC text without an offset; a non-UTC connection stores the wrong instant. Fixed by `options: '-c timezone=UTC'` in `PrismaPg` (`prisma.service.ts`, `seed.ts`). Regression test: `test/timezone.e2e-spec.ts`. Rows written before the fix in a dev DB are shifted; `pnpm prisma migrate reset` (in `apps/api`) clears them. |
+| App stuck on splash, red "required entitlement isn't present" | Keychain needs a SIGNED app. Do not build the simulator app with `CODE_SIGNING_ALLOWED=NO`; use `CODE_SIGN_IDENTITY="-" CODE_SIGNING_ALLOWED=YES` (normal Xcode/`pnpm ios` builds are already signed). The app now also falls back to signed-out instead of hanging if Keychain fails. |
 | Next.js 16 template: `cacheComponents` / `partialPrefetching` in `next.config.ts` | Removed: they need a Node server, but production is a static export. Also read `node_modules/next/dist/docs/` before using Next APIs; this version differs from older tutorials. |
 | `vitest` (admin) fails with "Cannot find package 'vite'" | Vitest 5 needs `vite` installed next to it (`npm i -D vite`). |
 | iOS simulator swallows typing in a password field (only 1 character arrives) | iOS AutoFill suggestion bubble (e.g. an old saved email) sits on top of the field. Tap its "x" to dismiss, then type. Real users just ignore it; not an app bug. |
@@ -77,13 +95,13 @@ Then once: `DATABASE_URL=postgresql://coach:coach_dev_password@localhost:5432/co
 | Forgot-password email field swallows typing in the simulator | Field had `textContentType="username"` so iOS offered saved logins. Use `emailAddress`. |
 | Script run with `tsx` fails env validation / Nest DI | `tsx` has no decorator metadata and passes env numbers as text. Env numbers use explicit `@Type(() => Number)`, and `scripts/send-test-mail.ts` builds `MailerService` by hand instead of booting Nest. |
 | `SMTP_SECURE=false` behaved as true | Text "false" is truthy; the setting is read from the raw value (`'true'` only). Covered by a unit test. |
-| `backend/src/generated/` missing after clone | It is generated, not committed: `npm run prisma:generate` (also runs on `npm install`). |
+| `apps/api/src/generated/` missing after clone | It is generated, not committed: `pnpm prisma:generate` in `apps/api` (also runs on `pnpm install`). |
 
 ---
 
 ## 4. Database
 
-Postgres 16. Prisma 7 (schema in `backend/prisma/schema.prisma`; connection URL lives in `prisma.config.ts`).
+Postgres 16. Prisma 7 (schema in `apps/api/prisma/schema.prisma`; connection URL lives in `prisma.config.ts`).
 Tables: `users`, `sessions`, `coach_profiles`, `subscriptions`, `blocks`, `push_tokens`, `audit_log`.
 
 ### 4.1 Conventions
@@ -92,7 +110,7 @@ Tables: `users`, `sessions`, `coach_profiles`, `subscriptions`, `blocks`, `push_
 - **Emails are stored lowercase** (CHECK constraint) and input is lowercased before use.
 - **Soft delete** on users via `deleted_at`; "live" queries always include `deleted_at IS NULL`.
 - **Raw SQL lives in the migration file** for anything Prisma can't express (marked `RAW`). Prisma does not drop them (verified: `migrate dev` reports "in sync").
-- Never edit an applied migration. Add a new one: `npm run prisma:migrate -- --name what_changed`. Use `--create-only` to hand-edit the SQL first.
+- Never edit an applied migration. Add a new one: `pnpm prisma:migrate --name what_changed` (in `apps/api`). Use `--create-only` to hand-edit the SQL first.
 
 ### 4.2 Every state, and what it means
 
@@ -125,7 +143,7 @@ Tables: `users`, `sessions`, `coach_profiles`, `subscriptions`, `blocks`, `push_
 | `CANCELLED_ACTIVE` | Auto-renew turned off but the paid period hasn't ended. | yes, until `expires_at` |
 | `EXPIRED` | Period over or refunded. | **no** |
 
-Implemented in `backend/src/subscriptions/subscription-access.ts` (`hasActiveAccess`), unit tested.
+Implemented in `apps/api/src/subscriptions/subscription-access.ts` (`hasActiveAccess`), unit tested.
 
 **`SubscriptionSource`**: `REVENUECAT` (store purchase) or `ADMIN_OVERRIDE` (free access granted by an Admin).
 
@@ -271,6 +289,8 @@ A valid signature only proves the token was issued. To make logout and bans effe
 | `EMAIL_TAKEN` | 409 | show "account exists" |
 
 ### 5.3 Endpoints (Phase 1)
+**How a route is defined (`apps/api`).** The path comes from `API_ROUTES` in `packages/shared/src/api.ts` (`@Post(API_ROUTES.auth.login)`), the body/query is checked by a zod schema from `packages/shared/src/schemas` named on the decorator (`@Body({ schema: LoginInputSchema }) dto: LoginInput`), and the global `ZodValidationPipe` (`common/pipes`) hands the controller the *parsed* value. Add a route = add its path and schema to `packages/shared` first. Env vars are declared in `config/env.ts` (zod) and checked at boot. OpenAPI page: `/docs` (not in production).
+
 | Method + path | Auth | Notes |
 |---------------|------|-------|
 | `POST /auth/register` | public | Always creates a `MEMBER`. Extra fields (e.g. `role`) are rejected (400). |
@@ -287,6 +307,11 @@ A valid signature only proves the token was issued. To make logout and bans effe
 | `GET /admin/users/:id` | SUPPORT, ADMIN | Read-only user detail. |
 | `POST /admin/users/:id/ban`, `/unban` | ADMIN only | See Section 7. |
 | `GET /people?kind=coaches\|members&q=&specialty=&available=&cursor=&limit=` | any logged-in mobile user | Hides yourself, banned/deleted, blocked (both directions), unapproved coaches. Returns no email. `q` = part of a name, any case. `specialty` / `available=true` apply to coaches only. Returns `{items, total, nextCursor}` (+ `specialties`: all specialties on offer, coaches tab only, for the filter chips); send `nextCursor` back as `cursor` for the next page (`null` = last page). Bad cursor -> 400. |
+| `GET /chat/conversations` | mobile user | My chats that have at least one message, newest first (max 50): `{id, other, lastSeq, unreadCount, lastMessage}`. Hides chats with banned/deleted/blocked people. |
+| `POST /chat/conversations` `{userId}` | mobile user | Start or reopen the chat with someone (same conversation both ways). 404 `USER_NOT_FOUND` for self/unknown/banned/staff/unapproved coach/blocked (a block looks like "missing"). |
+| `GET /chat/conversations/:id/messages?before=&after=&limit=` | participant | Newest page by default; `before=N` older; `after=N` newer (catch-up). Oldest first. Also `lastSeq`, `otherReadSeq`, `hasMore`. Non-participant -> 404. |
+| `POST /chat/conversations/:id/messages` `{clientMsgId, body}` | participant | Saves a message (1-2000 chars, trimmed). **Idempotent**: same `clientMsgId` returns the first message with `duplicate:true`. 403 `CANNOT_MESSAGE` if blocked/banned recipient. |
+| `POST /chat/conversations/:id/read` `{upToSeq}` | participant | "I have seen up to N". Only moves forward, capped at the newest message. |
 | `GET /health` | public | |
 
 Rate limit: 120 req/min per IP globally, **10/min on login/register/refresh** (HTTP 429). (Per-IP only for now; add per-account lockout later.)
@@ -302,17 +327,17 @@ Rate limit: 120 req/min per IP globally, **10/min on login/register/refresh** (H
 - No design existed for these screens; they follow the Verify email design. Ask the designer to review.
 
 ### 5.6 Password rule
-8-128 characters with one lowercase letter, one uppercase letter and one number. One regex on the server (`auth/dto/password-rule.ts`, used by register and reset) mirrored by `mobile/src/auth/passwordRules.ts`, which feeds the live checklist (`PasswordChecklist`). Login does NOT apply the rule (older accounts must still sign in).
+8-128 characters with one lowercase letter, one uppercase letter and one number. One regex in `packages/shared/src/constants.ts` (`PASSWORD_PATTERN`; the zod schema used by register and reset is built from it) and the same four rules as a checklist in `apps/mobile/src/utils/helpers/passwordRules.ts`, which feeds the live checklist (`PasswordChecklist`). Login does NOT apply the rule (older accounts must still sign in).
 
 ### 5.7 Sending real email
-`MAIL_DRIVER` in `backend/.env` picks the sender (`mail/mailer.service.ts`):
+`MAIL_DRIVER` in `apps/api/.env` picks the sender (`mail/mailer.service.ts`):
 | Driver | When | Needs |
 |--------|------|-------|
 | `console` (default) | Local dev, tests: prints the email, so you read the code in the backend terminal | nothing |
 | `smtp` | Gmail App Password in dev, or any SMTP provider (Brevo, Mailtrap, ...) | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` |
 | `resend` | Production-friendly HTTP API | `RESEND_API_KEY`, `MAIL_FROM` on a domain verified at Resend |
 - Missing settings for the chosen driver stop the backend at start-up with a clear message; blank lines (`SMTP_PORT=`) count as unset.
-- Test the setup without the app: `cd backend && npm run mail:test -- you@example.com` (restart the backend after editing `.env`).
+- Test the setup without the app: `cd apps/api && pnpm mail:test you@example.com` (restart the backend after editing `.env`).
 - Templates live in `mail/templates.ts` (`codeEmail`, plain text + escaped HTML). The e2e config forces `MAIL_DRIVER=console`, so tests never send mail.
 
 ### 5.4 Email verification (6-digit code)
@@ -327,6 +352,15 @@ Rate limit: 120 req/min per IP globally, **10/min on login/register/refresh** (H
 - **Search** = `name ILIKE '%text%'`. A normal index cannot serve "text in the middle", so migration `20261026150000_people_name_search` adds a **trigram GIN index** (`pg_trgm`, partial: only non-deleted users). The user's own `%` and `_` are escaped so they are plain letters (a test caught this).
 - **Cursor paging** (keyset): the cursor is the last row's `(name, id)`; the next page asks for rows after it. Unlike `OFFSET`, page 50 is as fast as page 1 and nobody is repeated or skipped if the list changes between requests. We fetch `limit + 1` rows to know whether another page exists.
 - `total` counts everything matching the filters, not just the page.
+
+### 5.9 Chat (Phase 7, first slice: REST + polling)
+- **Tables:** `conversations` (one row per PAIR: `user_a_id < user_b_id` CHECK, unique pair, so "A to B" and "B to A" are the same row and self-chat is impossible) and `messages` (`seq` = 1,2,3 inside the chat; unique `(conversation_id, seq)` and unique `(sender_id, client_msg_id)`).
+- **Message numbers without races:** one `UPDATE conversations SET last_seq = last_seq + 1 ... RETURNING` inside the transaction takes the next number; the row lock makes parallel sends queue up (tested with 9 at once: numbers 1..9, no gaps).
+- **Idempotent send:** the app makes a `clientMsgId` for every message. A retry after a bad connection returns the same saved message, so nothing is duplicated (also when two identical requests race: the unique index decides and the loser fetches the winner).
+- **Unread without counting:** sending a message sets the sender's read marker to it, so `unreadCount = last_seq - my_read_seq`. "Seen" = the other side's `read_seq >= message.seq`.
+- **Privacy:** only the two people can read a chat (others get 404, not 403). Blocks hide the chat and stop sending; banned or deleted people are hidden. An event `chat.message.created` is emitted after each save for sockets/push later.
+- **Mobile:** `MessagesScreen` (list, unread badge, refreshes every 5 s while visible), `ChatRoomScreen` (inverted list, bubbles, "Sending… / Not sent, tap to retry / Sent / Seen", loads older on scroll up, asks for newer messages every 3 s), `useChat` hook, `chatApi`. The chat opens as a layer over the tabs (from a Messages row or the chat button in People). Message numbers (`after=N`) are the catch-up cursor.
+- **Not built yet (Phase 7 remainder):** Socket.io real-time (polling is the stand-in), offline outbox that survives app restarts, typing, images, push notifications, day separators and the offline banner. Moving to sockets keeps the same REST endpoints for catch-up.
 
 ## 6. RBAC (role-based access control)
 
@@ -374,38 +408,70 @@ Idempotent: banning twice does nothing extra (and writes one audit row). Reason 
 | Ban listener is a stub that logs | Sockets/LiveKit don't exist yet; event contract is in place so no rewrite later. | 2026-10 |
 | Docker Postgres bound to `127.0.0.1` | Publishing 5432 on all interfaces exposes the DB on public Wi-Fi with a password that is in git. | 2026-10 |
 | Seed refuses `NODE_ENV=production` | Dev passwords must never reach a real database. | 2026-10 |
+| Monorepo like the Zenkoders boilerplate (pnpm + Turborepo, `apps/*`, `packages/shared`) | One contract (zod schemas + route list) for API, mobile and web; same layout on every Zenkoders project. | 2026-10 |
+| API validates with zod schemas from `@coach-connect/shared` (`@Body({ schema })`), not class-validator DTOs | The mobile forms and the API cannot drift; unknown fields are rejected with `z.strictObject`. Errors are `{ message, errors: { field: [..] } }`. | 2026-10 |
+| Mobile stays bare React Native; only the boilerplate's structure was adopted | Our native setup (Keychain, LiveKit, Firebase, signed simulator builds) works; Expo CNG would be a migration with no product benefit now. | 2026-10 |
 
-## 8b. Mobile app structure (`mobile/`)
-| Path | What |
-|------|------|
-| `src/config.ts` | Backend URL per platform (iOS sim `localhost`, Android emulator `10.0.2.2`; real phone = your Mac's Wi-Fi IP). |
-| `src/api/client.ts` | `apiRequest()`: the only way to call the backend. Failures become `ApiError(status, code, message)`; `status 0` = no network. |
-| `src/api/authApi.ts` | Typed functions `login / register / refresh / logout / me`; types mirror the backend answers (checked against the live server). |
-| `src/api/withAuth.ts` | Wrap every logged-in call: `withAuth((token) => authApi.me(token))`. Expired access token -> one shared refresh + retry; revoked/banned -> sign out; network error -> user stays signed in. |
-| `src/auth/tokenStorage.ts` | Tokens + device id in Keychain/Keystore (`AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY`: readable on a locked phone for incoming calls, never backed up). |
-| `src/auth/authStore.ts` | Zustand store: `status` (booting / signedOut / signedIn / offline), `restore()` on app open (valid token -> in; expired -> silent refresh; revoked/banned -> out with a reason; no network -> `offline`, tokens kept), `signIn`, `register`, `signOut` (works offline). |
-| `src/theme/` | Design tokens (colors, spacing, text) copied from the UI design. Screens never use raw colors. |
-| `src/components/CodeInput.tsx`, `ResendRow.tsx`, `src/hooks/useCountdown.ts` | Six-box code entry (one hidden real input), the "Resend in 0:42" row, and the countdown hook; shared by Verify email and the reset-code screen. |
-| `src/components/` | `Button`, `TextField`, `Logo` (the "C inside C" mark drawn with SVG: two open arcs facing each other with a dot between them), `icons` (back, check, dot). Shared by all screens. |
-| `src/screens/` | One file per screen (`SignInScreen` so far). Screens take callbacks as props; wiring to the backend is done outside the screen. |
-Screens so far: `SplashScreen` (green, logo tile, determinate progress bar: climbs to 85% while waiting, fills when ready, then hands over), `SignInScreen`, `RegisterScreen`, `CodeEntryScreen` (shared by `VerifyEmailScreen` and `ResetCodeScreen`: 6 boxes over ONE hidden input so paste/keypad/iOS autofill work; a Verify button shows once 6 digits are typed; resend countdown), `ForgotPasswordScreen`, `NewPasswordScreen`, `OfflineScreen`, `HomeScreen` (temporary: shows the real `/auth/me` answer and has a dev button to spoil the token and test refresh). `App.tsx` picks the screen from `authStore.status`.
-**Signed-in app (`MainTabs`):** bottom tabs People / Messages / Calls / Profile as a plain piece of state (no navigation library yet; People stays mounted so search/filters survive a tab switch). Messages and Calls are placeholders; Profile is still the temporary `HomeScreen` (sign out lives there). **People screen** (design 07): `usePeople` hook (debounced 300 ms search, filters, cursor paging, drops stale answers), `PersonRow` (avatar with availability dot, up to 2 specialty tag pills + "+N", Message and Call buttons; Call is disabled for unavailable coaches), `peopleApi`. Message/Call buttons only show a "coming soon" toast for now.
-Native launch screens (iOS `LaunchScreen.storyboard`, Android `windowBackground`) are green too, so there is no white flash before the JS splash.
-**Errors as toasts:** server errors go through `toast/toastStore.ts` (`showApiError`) and `ToastHost` (mounted once in `App.tsx`); screens keep only field-level hints inline. Admin web still uses an inline banner. Shared test helpers: `mobile/test-utils`.
-Tests: `npx jest` in `mobile/`. Testing gotchas: `jest.setup.js` mocks `react-native-svg`; a timer that re-arms itself after each render (countdowns) needs one `act` per second in tests; mock `react-native-safe-area-context` (its provider renders nothing in tests); in `act`, effects start only after the first block ends, so wait in a second `act`. Fonts (Bricolage Grotesque, Hanken Grotesk) are not bundled yet; system font is used.
+## 8b. Mobile app structure (`apps/mobile/`)
 
-**Run it on the iOS simulator:** (1) backend running on port 3000, (2) `cd mobile && npx react-native start`, (3) `npm run ios` (or build in Xcode and open the app). Log in as `sara@coachconnect.dev` / `Password123!`. Placeholder to change before release: the iOS bundle id is still the template's `org.reactjs.native.example.CoachConnect` and Android's is `com.coachconnect`.
+Follows the Zenkoders boilerplate (`mono-repo` branch), but stays **bare React Native 0.88** (our own `ios/` and `android/`, Keychain, SVG, LiveKit, Firebase). We copied the *structure and conventions*, not Expo.
 
-### 8c. Admin web panel (`admin/`)
+```
+App.tsx                      Providers: React Query -> SafeArea -> NavigationContainer (after the splash) + toast host
+index.js                     AppRegistry entry (bare RN)
+src/
+  assets/                    (images/fonts when we add them)
+  components/
+    index.ts                 Barrel: screens import UI from "@/src/components"
+    common/<CustomName>/     index.tsx + interface.ts (props) [+ hook/ when the component has logic]
+    wrappers/CustomWrapper   Screen root: background, safe-area top, optional scroll + keyboard avoiding
+  constants/                 theme/ (COLORS, SPACING, RADIUS, TEXT, FONT), endpoints.ts (shared API_ROUTES), general.ts (API URL, shared constants)
+  navigations/               RootStack.tsx (native stack, screens chosen by sign-in status), navigationRef.ts
+  screens/<module>/<screen>/ <Screen>.tsx (thin UI) + hook/use<Screen>.tsx (all the logic)
+    auth/    signIn, register, forgotPassword, resetCode, newPassword, verifyEmail
+    system/  splash, offline
+    home/    main (tab bar), people, messages, chat, calls, profile
+  service/
+    api/*.api.ts             Plain request functions per domain (authApi, peopleApi, chatApi), typed with @coach-connect/shared
+    setup/                   apiClient.ts (apiRequest + ApiError), withAuth.ts (token refresh), handleApiError.ts (error -> toast)
+  store/                     auth.store.ts, toast.store.ts (Zustand), secureStorage.ts (Keychain)
+  utils/                     helpers/ (passwordRules, time, validation), hooks/ (useCountdown, useDebounced, useInterval), types/ (navigationType)
+__tests__/                   mirrors src/ (screens, components, service, store, utils) + App.test.tsx (real navigation)
+test-utils/                  render (with React Query), byLabel/press/typeInto helpers, navigation mock
+```
+Import alias: `@/` = the `apps/mobile` folder (`@/src/components`). It is set in `tsconfig.json`, `babel.config.js` (module-resolver) and `jest.config.js`.
+
+**Deliberate differences from the boilerplate**
+- Bare RN, not Expo (no `app.config.ts`, `ios/` and `android/` are committed). Keychain instead of `expo-secure-store`; no MMKV yet.
+- `fetch` + our own `ApiError(status, code, message, data)` instead of axios + `handleRequest`. Hooks *throw* (React Query expects it) and the toast shows `error.message`; `code` drives behaviour.
+- No `react-native-responsive-screen` / `RFValue`: sizes are plain points taken from the design.
+- Chat messages use our own hook (`useChat`: optimistic send, retry with the same `clientMsgId`, 3 s polling) instead of React Query, because pending messages and "seen" do not fit a plain query. People and Messages use React Query (`useInfiniteQuery` / `useQuery` with `refetchInterval`).
+- The bottom tab bar is hand-made (`home/main`), inside ONE native-stack screen. Native stack only (never `@react-navigation/stack`).
+
+**Navigation = sign-in status.** `RootStack` shows a different group of screens per `auth.store` `status`: `signedOut` -> Sign in / Create account / Forgot password / Enter the code / New password; signed in but email not verified -> Verify email; `offline` -> Offline; otherwise Main + Chat. When the status changes the whole group swaps, so nobody can reach a signed-in screen while signed out and nobody calls `navigate()` after signing in. Forgot password passes data through route params (`ResetCode {email, resendSeconds}`, `NewPassword {resetToken}`); finishing it does `CommonActions.reset` to Sign in with `{passwordUpdated: true}`.
+
+**Screen pattern.** `const SignIn: React.FC<Props> = ({ route }) => { const s = useSignIn(route.params); ... }`. The hook holds state, validation, API calls and navigation; the screen only draws. Tests mock the API module and `useNavigation` (see `test-utils/navigation.ts`) and assert on what the hook did.
+
+**Errors as toasts:** server errors go through `service/setup/handleApiError.ts` (`showApiError`) and `CustomToastHost`; screens keep only field-level hints inline. Server validation answers look like `{ message: 'Validation failed', errors: { field: [messages] } }`; `apiClient` shows the first field message. Web still uses an inline banner.
+
+Screens: `Splash` (green, determinate progress bar), `SignIn`, `Register`, `CustomCodeEntry` (shared by `VerifyEmail` and `ResetCode`: 6 boxes over ONE hidden input so paste/keypad/iOS autofill work; Verify button only after 6 digits; resend countdown), `ForgotPassword`, `NewPassword`, `Offline`, and the tabs **People** (design 07: debounced search, specialty chips, "Available now", cursor paging, specialty tag pills on coach cards), **Messages** (design 09), **Chat** (design 10), Calls (placeholder), Profile (temporary: shows `/auth/me` and has a dev button to spoil the token and test refresh). Native launch screens (iOS `LaunchScreen.storyboard`, Android `windowBackground`) are green too, so there is no white flash before the JS splash.
+
+**Tests:** `pnpm test` in `apps/mobile` (or `pnpm turbo test`). Gotchas: `jest.setup.js` mocks `react-native-svg`, `react-native-safe-area-context`, and `@react-navigation/native` (hooks only: `App.test.tsx` opts out with `jest.unmock` to test the real stack); React Query's scheduler is made synchronous; `transformIgnorePatterns` lets Jest compile `@react-navigation`; in a real stack the earlier screens stay mounted, so `byLabel` returns the LAST (top) match; a timer that re-arms itself after each render needs one `act` per second; trees are unmounted after every test (`jest.setup.after.js`). Fonts (Bricolage Grotesque, Hanken Grotesk) are not bundled yet; system font is used.
+
+**Run it on the iOS simulator:** (1) API running on port 3000, (2) `cd apps/mobile && pnpm dev` (Metro), (3) `pnpm ios` (or build in Xcode and open the app). Log in as `sara@coachconnect.dev` / `Password123!`. Placeholder to change before release: the iOS bundle id is still the template's `org.reactjs.native.example.CoachConnect` and Android's is `com.coachconnect`.
+
+**Native paths in a monorepo.** Dependencies are hoisted to the repo root, so `ios/CoachConnect.xcodeproj` points `REACT_NATIVE_PATH` at `${PODS_ROOT}/../../../../node_modules/react-native` and `android/settings.gradle` includes `../../../node_modules/@react-native/gradle-plugin`. `metro.config.js` watches the root `node_modules` and `packages/shared`.
+
+### 8c. Admin web panel (`apps/web/`)
 - **Stack:** Next.js (App Router) + TypeScript, plain CSS Modules with design tokens in `globals.css` (chosen over Tailwind: fewer new concepts for a first Next.js project; can be added later). Fonts: Bricolage Grotesque (headings), Hanken Grotesk (body).
 - **Production = static export** (`output: 'export'`): plain files in `out/` that the NestJS backend will serve from the same address as the API, so the secure login cookie works and there is one deployable service. Consequence: no Next server features (rewrites, cookies(), server actions, route handlers using the request). All data comes from the backend API via `fetch` in the browser.
-- **Development:** `npm run dev` on port 3001; `next.config.ts` forwards `/api/*` to the backend (port 3000), so the browser sees one address. (Rewrites only exist in dev; static exports do not allow them.) TODO before deploy: make the backend answer under the path the built panel calls (e.g. serve the panel under `/panel` and keep API paths).
+- **Development:** `pnpm dev` on port 3001; `next.config.ts` forwards `/api/*` to the backend (port 3000), so the browser sees one address. (Rewrites only exist in dev; static exports do not allow them.) TODO before deploy: make the backend answer under the path the built panel calls (e.g. serve the panel under `/panel` and keep API paths).
 - `src/lib/api.ts` (one place for requests, `ApiError` with backend codes), `src/lib/session.ts` (sign in/out, `useSession()`), `src/components/AdminShell.tsx` (sidebar + frame, redirects to Sign in when signed out), pages: `/login`, `/dashboard`.
 - **Temporary:** tokens are kept in page memory only (never localStorage), so a refresh signs you out. Next backend step: httpOnly cookie login + CSRF protection, then 2FA for ADMIN. Pages only use `session.ts`, so they won't change.
 - Sidebar items other than Dashboard are shown greyed ("Coming soon") until their pages exist.
 
 ### 8d. App icon
-Source of truth: `mobile/scripts/generate-icons.mjs` (draws the "C inside C" mark; run `npm run icons` in `mobile/`). It writes `mobile/assets/app-icon.svg`, the iOS 1024 px icon (`AppIcon.appiconset`, no transparency; iOS rounds the corners) and Android legacy, round and adaptive icons (`mipmap-*`, `mipmap-anydpi-v26`, colors in `values/colors.xml`; mark kept inside the adaptive safe zone, also used as the Android 13 themed icon). Change the design in that script and re-run. Checked: iOS build shows it on the home screen; Android `mergeDebugResources` succeeds (not run on an emulator).
+Source of truth: `apps/mobile/scripts/generate-icons.mjs` (draws the "C inside C" mark; run `pnpm icons` in `apps/mobile/`). It writes `apps/mobile/assets/app-icon.svg`, the iOS 1024 px icon (`AppIcon.appiconset`, no transparency; iOS rounds the corners) and Android legacy, round and adaptive icons (`mipmap-*`, `mipmap-anydpi-v26`, colors in `values/colors.xml`; mark kept inside the adaptive safe zone, also used as the Android 13 themed icon). Change the design in that script and re-run. Checked: iOS build shows it on the home screen; Android `mergeDebugResources` succeeds (not run on an emulator).
 
 **Docs policy:** `Requirement & Design/` (client PRD, UI export, plans) is git-ignored and stays on your machine. Only `README.md` and `knowledge.md` are shared in the repo.
 
@@ -414,7 +480,7 @@ Source of truth: `mobile/scripts/generate-icons.mjs` (draws the "C inside C" mar
 - [ ] Every new route is protected by default; `@Public()` only where intended.
 - [ ] Every admin write goes through a service that writes an audit row in the same transaction.
 - [ ] Role/ban/subscription decisions read the database, never the token claims.
-- [ ] Input is validated by DTOs; unknown fields rejected.
+- [ ] Input is validated by a zod schema from `packages/shared` (`@Body({ schema })`); unknown fields rejected (`z.strictObject`).
 - [ ] Rate limit on anything that checks a secret.
 - [ ] Dev credentials (`Password123!`, `coach_dev_password`) exist only in dev; staging/prod use real secrets.
 
@@ -443,7 +509,9 @@ Phase 1 remaining: Google/Apple sign-in; change password (B4); admin cookie logi
 - **2026-10-26, verified on the simulator:** splash, Sign in, Create account (live password tick), Verify email (wrong code -> "4 tries left", right code -> Home) against the real backend; fixed refocus bug; 64 mobile + 41 backend tests.
 - **2026-10-26, admin web started:** Next.js 16 scaffold (static export in production, dev proxy), sign-in page (design A1) and dashboard shell (A2) connected to the real backend; session helper with logout; 8 admin tests. App icon added for iOS and Android. Port-in-use fix documented.
 - **2026-10-27, forgot / reset password:** shared `OneTimeCodeService` (refactor, tests stayed green), `POST /auth/password/forgot` + `/reset` (no account leak, signs out all devices), mobile Forgot + Reset screens with shared CodeInput/ResendRow; verified end to end on the simulator. Backend 55 integration + 7 unit tests, mobile 79 tests.
-- **2026-10-26, auth polish + real email:** errors shown as toasts in the app; password rule (lowercase + uppercase + number) with live checklist; "Open mail app" removed and Verify button appears at 6 digits; "Forgot password?" moved under the password field; reset is now 3 steps (email -> code -> new password) with a single-use reset token; unknown email says so and offers "Create an account"; mailer drivers `console`/`smtp`/`resend` with start-up validation and `npm run mail:test`. Verified on the simulator end to end. Backend 68 integration + 20 unit tests, mobile 120 tests.
+- **2026-10-26, auth polish + real email:** errors shown as toasts in the app; password rule (lowercase + uppercase + number) with live checklist; "Open mail app" removed and Verify button appears at 6 digits; "Forgot password?" moved under the password field; reset is now 3 steps (email -> code -> new password) with a single-use reset token; unknown email says so and offers "Create an account"; mailer drivers `console`/`smtp`/`resend` with start-up validation and `pnpm mail:test`. Verified on the simulator end to end. Backend 68 integration + 20 unit tests, mobile 120 tests.
 
 - **2026-10-26, People search (step 1.4b):** `q`, `specialty`, `available`, cursor paging, trigram index; separate verification/reset email templates; mail on port 465 note. Backend 73 integration + 21 unit tests.
 - **2026-10-26, People screen (mobile):** tabs shell, Coaches/Members with search, specialty + "Available now" chips, paging, specialty tags on coach cards; backend returns the chip list. Verified on the simulator. Mobile 130 tests, backend 74 integration tests.
+- **2026-10-26, chat (first slice):** conversations/messages tables, REST API (open, list, page, idempotent send, read receipts), Messages list and Chat room screens with polling. Verified on the simulator with a coach account answering via the API (message arrived, "Seen" shown). Backend 92 integration tests, mobile 148.
+- **2026-10-26, monorepo refactor (boilerplate layout):** `mobile/`, `backend/`, `admin/` moved to `apps/mobile`, `apps/api`, `apps/web`; pnpm + Turborepo; new `packages/shared` (zod schemas, `API_ROUTES`, types, constants) and `packages/tsconfig`. API now validates with the shared zod schemas through a global `ZodValidationPipe` (class-validator DTOs removed), env validated with zod, OpenAPI at `/docs`. Mobile restructured to the boilerplate folders (`components/common/Custom*`, `screens/<module>/<screen>` + `hook/`, `service`, `store`, `constants`, `utils`), native-stack navigation driven by sign-in status, React Query for People/Messages/Profile. Backend 94 integration + 21 unit tests, mobile 155, web 8, shared 6.

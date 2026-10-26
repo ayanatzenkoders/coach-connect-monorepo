@@ -1,0 +1,31 @@
+packages:
+  - apps/*
+  - packages/*
+
+# One version for cross-app libraries. Use `"dep": "catalog:"` in package.json.
+# React is pinned to ONE version for web and mobile: two Reacts in one monorepo break hooks on mobile.
+catalog:
+  typescript: ^6.0.3
+  zod: ^4.6.5
+  "@tanstack/react-query": ^5.104.5
+  react: 19.3.0
+  react-dom: 19.3.0
+  "@types/react": ^19.2.0
+
+# pnpm 10 blocks dependency install scripts unless allow-listed (native modules and engines we need).
+onlyBuiltDependencies:
+  - "@nestjs/core"
+  - "@prisma/client"
+  - "@prisma/engines"
+  - "@sentry/cli"
+  - argon2
+  - esbuild
+  - prisma
+  - sharp
+  - unrs-resolver
+
+# Install scripts we deliberately skip.
+ignoredBuiltDependencies:
+  - "@firebase/util"
+  - protobufjs
+  - "@scarf/scarf"
