@@ -56,11 +56,11 @@ export interface PeoplePage {
   specialties?: string[];
 }
 
-export interface ConversationSummary {
+export interface ChatSummary {
   id: string;
   other: { id: string; name: string; role: "MEMBER" | "COACH" };
-  /** Number of the newest message in this conversation. */
-  lastSeq: number;
+  /** Number of the newest message in this chat. */
+  lastMessageSequenceNumber: number;
   unreadCount: number;
   lastMessageAt: string | null;
   lastMessage: { senderId: string; body: string; createdAt: string } | null;
@@ -68,12 +68,12 @@ export interface ConversationSummary {
 
 export interface ChatMessage {
   id: string;
-  /** 1, 2, 3 ... inside the conversation: the order everybody sees. */
-  seq: number;
+  /** 1, 2, 3 ... inside the chat: the order everybody sees. */
+  sequenceNumber: number;
   senderId: string;
   body: string;
   /** Made by the sending app; lets it recognise its own message when it comes back. */
-  clientMsgId: string;
+  clientMessageId: string;
   createdAt: string;
 }
 
@@ -81,7 +81,7 @@ export interface MessagesPage {
   /** Oldest first. */
   items: ChatMessage[];
   hasMore: boolean;
-  lastSeq: number;
+  lastMessageSequenceNumber: number;
   /** The other person has read up to this message number ("Seen"). */
-  otherReadSeq: number;
+  otherLastReadSequenceNumber: number;
 }

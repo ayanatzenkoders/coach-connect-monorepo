@@ -1,5 +1,5 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { ConversationSummary } from '@/src/service/api/chat.api';
+import type { ChatSummary } from '@/src/service/api/chat.api';
 
 // Every screen in the root native stack, with its route params.
 // Which ones exist at a given moment depends on the sign-in status (see navigations/RootStack.tsx).
@@ -16,7 +16,7 @@ export type RootStackParamList = {
   Offline: undefined;
   // Signed in
   Main: undefined;
-  Chat: { conversation: ConversationSummary };
+  Chat: { chat: ChatSummary };
 };
 
 export type RootStackScreenProps<T extends keyof RootStackParamList> = NativeStackScreenProps<RootStackParamList, T>;

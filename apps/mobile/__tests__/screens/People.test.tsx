@@ -1,7 +1,7 @@
 import { FlatList } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import People from '@/src/screens/home/people/People';
-import { chatApi, ConversationSummary } from '@/src/service/api/chat.api';
+import { chatApi, ChatSummary } from '@/src/service/api/chat.api';
 import { peopleApi, PeoplePage } from '@/src/service/api/people.api';
 import { ApiError } from '@/src/service/setup/apiClient';
 import { useAuthStore } from '@/src/store/auth.store';
@@ -58,13 +58,13 @@ describe('People screen', () => {
     expect(lastToast()).toMatchObject({ message: 'Calling Amara Okafor is coming soon.', tone: 'info' });
   });
 
-  it('the chat button opens (or creates) the conversation and shows the Chat screen', async () => {
+  it('the chat button opens (or creates) the chat and shows the Chat screen', async () => {
     const tree = await setup();
-    const conversation: ConversationSummary = { id: 'conv-1', other: { id: 'c2', name: 'Lena Fischer', role: 'COACH' }, lastSeq: 0, unreadCount: 0, lastMessageAt: null, lastMessage: null };
-    open.mockResolvedValue(conversation);
+    const chat: ChatSummary = { id: 'conv-1', other: { id: 'c2', name: 'Lena Fischer', role: 'COACH' }, lastMessageSequenceNumber: 0, unreadCount: 0, lastMessageAt: null, lastMessage: null };
+    open.mockResolvedValue(chat);
     await press(tree, 'Message Lena Fischer');
     expect(open).toHaveBeenCalledWith('token', 'c2');
-    expect(navigationMock.navigate).toHaveBeenCalledWith('Chat', { conversation });
+    expect(navigationMock.navigate).toHaveBeenCalledWith('Chat', { chat });
   });
 
   it('shows a toast, and does not navigate, when the chat cannot be opened', async () => {
@@ -114,6 +114,48 @@ describe('People screen', () => {
     expect(lastQuery()).toMatchObject({ specialty: 'Burnout', available: true });
     await press(tree, 'Filter: Burnout');
     expect(lastQuery().specialty).toBeUndefined();
+  });
+
+  describe('does not make the list jump', () => {
+    const flat = (tree: Awaited<ReturnType<typeof setup>>) => tree.root.findByType(FlatList);
+
+    it('keeps the old list and no pull-to-refresh spinner while a SEARCH loads (the spinner pushes the list down)', async () => {
+      const tree = await setup();
+      list.mockImplementationOnce(() => new Promise(() => {})); // the search answer is slow
+      await typeInto(tree, 'Search people', 'ama');
+      await wait(301);
+      expect(list).toHaveBeenCalledTimes(2);
+      expect(flat(tree).props.refreshing).toBe(false);
+      expect(allText(tree)).toEqual(expect.arrayContaining(['Amara Okafor', 'Lena Fischer'])); // old rows stay until the new ones arrive
+    });
+
+    it('same for a FILTER chip', async () => {
+      const tree = await setup();
+      list.mockImplementationOnce(() => new Promise(() => {}));
+      await press(tree, 'Filter: Burnout');
+      expect(list).toHaveBeenCalledTimes(2);
+      expect(flat(tree).props.refreshing).toBe(false);
+    });
+
+    it('shows the spinner only for a real pull-to-refresh, and hides it when the answer arrives', async () => {
+      const tree = await setup();
+      let answer!: (p: PeoplePage) => void;
+      list.mockImplementationOnce(() => new Promise<PeoplePage>((r) => { answer = r; }));
+      await ReactTestRenderer.act(async () => { flat(tree).props.onRefresh(); });
+      expect(flat(tree).props.refreshing).toBe(true);
+      await ReactTestRenderer.act(async () => answer(page({ items: [AMARA], total: 1 })));
+      expect(flat(tree).props.refreshing).toBe(false);
+    });
+
+    it('goes back to the top when new search results replace the old ones', async () => {
+      const tree = await setup();
+      const scrollToOffset = jest.fn();
+      flat(tree).instance.scrollToOffset = scrollToOffset;
+      list.mockResolvedValueOnce(page({ items: [AMARA], total: 1 }));
+      await typeInto(tree, 'Search people', 'ama');
+      await wait(301);
+      expect(scrollToOffset).toHaveBeenCalledWith({ offset: 0, animated: false });
+    });
   });
 
   it('loads the next page with the cursor and appends it', async () => {

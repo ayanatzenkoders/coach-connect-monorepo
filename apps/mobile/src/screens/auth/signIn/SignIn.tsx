@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { CustomButton, CustomLogo, CustomTextInput, CustomWrapper } from '@/src/components';
-import { COLORS, MIN_TOUCH, RADIUS, SPACING, TEXT } from '@/src/constants';
+import { COLORS, MIN_TOUCH, RADIUS, SPACING, MAX_FONT_SCALE, TEXT } from '@/src/constants';
 import type { RootStackScreenProps } from '@/src/utils/types';
 import { useSignIn } from './hook/useSignIn';
 
@@ -17,7 +17,7 @@ const SignIn: React.FC<Props> = ({ route }) => {
         <View style={styles.logo}>
           <CustomLogo size={30} outer="#FFFFFF" inner="#FFFFFF" dot="#FFFFFF" />
         </View>
-        <Text accessibilityRole="header" style={[TEXT.title, styles.title]}>
+        <Text accessibilityRole="header" maxFontSizeMultiplier={MAX_FONT_SCALE.title} style={[TEXT.title, styles.title]}>
           Welcome back
         </Text>
         <Text style={TEXT.body}>Sign in to talk with your coach.</Text>

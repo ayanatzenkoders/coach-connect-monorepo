@@ -49,7 +49,7 @@ describe('RBAC and bans', () => {
     const ban = await api(app).post(`/admin/users/${member.id}/ban`).set(bearer(supportTok.accessToken)).send({ reason: 'Spam or scams' });
     expect(ban.status).toBe(403);
     expect(ban.body.code).toBe('FORBIDDEN_ROLE');
-    expect((await prisma.user.findUniqueOrThrow({ where: { id: member.id } })).isBanned).toBe(false);
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: member.id } })).bannedAt).toBeNull();
   });
 
   it('applies a role change immediately (role comes from the database, not the token)', async () => {
@@ -86,12 +86,17 @@ describe('RBAC and bans', () => {
     expect(await prisma.session.count({ where: { userId: member.id, revokedAt: null } })).toBe(0);
     const audit = await prisma.auditLog.findFirstOrThrow({ where: { action: 'user.ban' } });
     expect(audit).toMatchObject({ actorId: admin.id, targetId: member.id });
+    // 5) banned_at is the only ban column; the reason lives in the audit entry and the admin detail reads it from there
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: member.id } })).bannedAt).not.toBeNull();
+    expect(audit.metadata).toMatchObject({ reason: 'Harassment of a coach', note: 'report R-118' });
+    const detail = await api(app).get(`/admin/users/${member.id}`).set(bearer(adminTok.accessToken));
+    expect(detail.body).toMatchObject({ isBanned: true, banReason: 'Harassment of a coach', bannedById: admin.id });
   });
 
   it('BAN: reports ACCOUNT_BANNED even if the session was somehow still alive', async () => {
     const { member, memberTok } = await setup();
     // simulate a ban flag set without session revocation (defence in depth)
-    await prisma.user.update({ where: { id: member.id }, data: { isBanned: true, bannedAt: new Date() } });
+    await prisma.user.update({ where: { id: member.id }, data: { bannedAt: new Date() } });
     const me = await api(app).get('/auth/me').set(bearer(memberTok.accessToken));
     expect(me.status).toBe(403);
     expect(me.body.code).toBe('ACCOUNT_BANNED');
@@ -123,7 +128,7 @@ describe('RBAC and bans', () => {
 
   it('a banned user who has not logged in yet can never sign in', async () => {
     await seedUser(prisma, 'banned@x.com', 'MEMBER');
-    await prisma.user.updateMany({ where: { email: 'banned@x.com' }, data: { isBanned: true, bannedAt: new Date() } });
+    await prisma.user.updateMany({ where: { email: 'banned@x.com' }, data: { bannedAt: new Date() } });
     const res = await api(app).post('/auth/login').send({ email: 'banned@x.com', password: PASSWORD, deviceId: 'device-aaaaaaaa' });
     expect(res.body.code).toBe('ACCOUNT_BANNED');
   });

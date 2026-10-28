@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { COLORS, MIN_TOUCH } from '@/src/constants';
+import { COLORS, MAX_FONT_SCALE, MIN_TOUCH } from '@/src/constants';
 import { CustomAvatar } from '@/src/components/common/CustomAvatar';
 import { MessageIcon, PhoneIcon } from '@/src/components/common/CustomIcon';
 
@@ -10,7 +10,8 @@ import type { CustomPersonRowProps } from './interface';
 const MAX_TAGS = 2;
 
 /** One card of the People list: who they are, what a coach is good at, and the message / call buttons. */
-export function CustomPersonRow({ person, onMessage, onCall }: CustomPersonRowProps) {
+// memo: a row is redrawn only when its person (or the handlers) change, not when the search box or another row does.
+export const CustomPersonRow = memo(function PersonRow({ person, onMessage, onCall }: CustomPersonRowProps) {
   const isCoach = person.role === 'COACH';
   // Members can always be called; a coach only while "available" is switched on.
   const callable = !isCoach || person.available === true;
@@ -21,7 +22,7 @@ export function CustomPersonRow({ person, onMessage, onCall }: CustomPersonRowPr
       <View style={styles.who}>
         <CustomAvatar id={person.id} name={person.name} online={isCoach ? person.available : undefined} />
         <View style={styles.texts}>
-          <Text style={styles.name} numberOfLines={1}>
+          <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.name} numberOfLines={1}>
             {person.name}
           </Text>
           {isCoach ? (
@@ -29,19 +30,21 @@ export function CustomPersonRow({ person, onMessage, onCall }: CustomPersonRowPr
               <View style={styles.tags}>
                 {tags.slice(0, MAX_TAGS).map((tag) => (
                   <View key={tag} style={styles.tag}>
-                    <Text style={styles.tagText} numberOfLines={1}>
+                    <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.tagText} numberOfLines={1}>
                       {tag}
                     </Text>
                   </View>
                 ))}
-                {tags.length > MAX_TAGS && <Text style={styles.more}>+{tags.length - MAX_TAGS}</Text>}
+                {tags.length > MAX_TAGS && <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.more}>+{tags.length - MAX_TAGS}</Text>}
               </View>
-              <Text style={[styles.status, { color: person.available ? COLORS.primary : COLORS.inkMuted }]}>
+              <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={[styles.status, { color: person.available ? COLORS.primary : COLORS.inkMuted }]}>
                 {person.available ? 'Available now' : 'Not available'}
               </Text>
             </>
           ) : (
-            <Text style={styles.sub}>Member</Text>
+            <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.sub}>
+              Member
+            </Text>
           )}
         </View>
       </View>
@@ -60,7 +63,7 @@ export function CustomPersonRow({ person, onMessage, onCall }: CustomPersonRowPr
       </Pressable>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   card: {

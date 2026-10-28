@@ -5,10 +5,10 @@ import {
   IdSchema,
   MarkReadInputSchema,
   MessagesQuerySchema,
-  OpenConversationInputSchema,
+  OpenChatInputSchema,
   SendMessageInputSchema,
 } from '@coach-connect/shared';
-import type { MarkReadInput, MessagesQueryParsed, OpenConversationInput, SendMessageInput } from '@coach-connect/shared';
+import type { MarkReadInput, MessagesQueryParsed, OpenChatInput, SendMessageInput } from '@coach-connect/shared';
 import type { AuthUser } from '../common/auth-user.js';
 import { CurrentUser } from '../common/decorators/index.js';
 import { ChatService } from './chat.service.js';
@@ -19,15 +19,15 @@ import { ChatService } from './chat.service.js';
 export class ChatController {
   constructor(private readonly chat: ChatService) {}
 
-  @Get(API_ROUTES.chat.conversations)
+  @Get(API_ROUTES.chat.chats)
   list(@CurrentUser() user: AuthUser) {
     return this.chat.list(user.id);
   }
 
-  /** Start or reopen the chat with someone (returns the same conversation every time). */
-  @Post(API_ROUTES.chat.conversations)
+  /** Start or reopen the chat with someone (returns the same chat every time). */
+  @Post(API_ROUTES.chat.chats)
   @HttpCode(200)
-  open(@CurrentUser() user: AuthUser, @Body({ schema: OpenConversationInputSchema }) dto: OpenConversationInput) {
+  open(@CurrentUser() user: AuthUser, @Body({ schema: OpenChatInputSchema }) dto: OpenChatInput) {
     return this.chat.open(user.id, dto.userId);
   }
 
@@ -45,6 +45,6 @@ export class ChatController {
   @Post(API_ROUTES.chat.read)
   @HttpCode(200)
   read(@CurrentUser() user: AuthUser, @Param('id', { schema: IdSchema }) id: string, @Body({ schema: MarkReadInputSchema }) dto: MarkReadInput) {
-    return this.chat.markRead(user.id, id, dto.upToSeq);
+    return this.chat.markRead(user.id, id, dto.upToSequenceNumber);
   }
 }

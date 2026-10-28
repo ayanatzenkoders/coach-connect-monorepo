@@ -4,7 +4,8 @@ import { AppException } from '../common/errors/app.exception.js';
 import { MailerService } from '../mail/mailer.service.js';
 import { passwordResetEmail } from '../mail/templates.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { CODE_TTL_SECONDS, OneTimeCodeService, RESEND_COOLDOWN_SECONDS } from './one-time-code.service.js';
+import { RealtimeService } from '../realtime/realtime.service.js';
+import { CODE_TTL_SECONDS, VerificationCodeService, RESEND_COOLDOWN_SECONDS } from './verification-code.service.js';
 import { PasswordService } from './password.service.js';
 import { TokenService } from './token.service.js';
 
@@ -22,11 +23,12 @@ export class PasswordResetService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly codes: OneTimeCodeService,
+    private readonly codes: VerificationCodeService,
     private readonly passwords: PasswordService,
     private readonly tokens: TokenService,
     private readonly mailer: MailerService,
     private readonly audit: AuditService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   /**
@@ -98,6 +100,8 @@ export class PasswordResetService {
       });
       await this.audit.record({ actorId: user.id, action: 'password.reset', targetType: 'user', targetId: user.id }, tx);
     });
+    // REAL-TIME: every session was just revoked, so close this user's open sockets too (all their devices).
+    this.realtime.disconnectUser(user.id);
     return { ok: true };
   }
 

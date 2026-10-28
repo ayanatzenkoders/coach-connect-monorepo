@@ -40,14 +40,13 @@ A cleanup pass removed everything nothing imported. Each item returns with its p
 | `@livekit/react-native`, `@livekit/react-native-webrtc`, `livekit-client` | Calls (Phase 3) | 3.1.0, **150.1.0 (pin it: 150.1.1 needs a WebRTC pod we could not install)**, 2.23.0 |
 | `react-native-callkeep`, `react-native-voip-push-notification` | Ringing a locked phone (Phase 5) | 4.6.1, 3.3.3 |
 | `@react-native-firebase/app`, `/messaging`, `@notifee/react-native` | Push notifications (Phase 5). Firebase v27 needs dynamic frameworks: set `linkage = ENV['USE_FRAMEWORKS'] \|\| 'dynamic'` in the Podfile | 27.0.0, 27.0.0, 9.1.8 |
-| `socket.io-client` | Real-time chat and call events (Phase 7) | 4.8.4 |
 | `@op-engineering/op-sqlite` | Offline message outbox (Phase 7) | 18.2.5 |
 | `react-native-purchases` | Subscriptions (Phase 6) | 10.15.1 |
 | `@sentry/react-native` | Crash reporting (Phase 10) | 8.32.0 |
 | `@react-native-google-signin/google-signin`, `@invertase/react-native-apple-authentication` | Google / Apple sign-in | 16.1.5, 2.5.1 |
 | `react-native-image-picker` | Chat images / avatars. It needs `-framework UniformTypeIdentifiers -framework MobileCoreServices` in the Podfile `post_install` when frameworks are dynamic | 8.3.0 |
 | `@react-navigation/bottom-tabs`, `@react-native/new-app-screen`, `@babel/preset-env` | Not used (the tab bar is hand-made; template leftovers) | |
-| API: `@nestjs/event-emitter` + the `user.banned` / `chat.message.created` events | Nothing listened to them. Add back with sockets / calls | |
+| API: `@nestjs/event-emitter` + the `user.banned` / `chat.message.created` events | Replaced by `RealtimeService` (direct calls, section 5.10). No listener-based events needed | |
 | API: table `push_tokens` + enum `PushPlatform` (and "a ban deletes the user's push tokens") | Push notifications. Re-add with a migration, and make `BanService.ban` delete the tokens in its transaction | |
 | API: `subscriptions.source`, `subscriptions.last_event_id` + enum `SubscriptionSource` | RevenueCat webhook (Phase 6) | |
 | API: `@nestjs/mau` (`nest deploy`), `source-map-support`, `@vitest/coverage-v8`, explicit `pg` / `@types/pg` (`@prisma/adapter-pg` brings its own) | Template leftovers | |
@@ -122,7 +121,7 @@ Then once: `DATABASE_URL=postgresql://coach:coach_dev_password@localhost:5432/co
 ## 4. Database
 
 Postgres 16. Prisma 7 (schema in `apps/api/prisma/schema.prisma`; connection URL lives in `prisma.config.ts`).
-Tables: `users`, `sessions`, `coach_profiles`, `subscriptions`, `blocks`, `one_time_codes`, `conversations`, `messages`, `audit_log`.
+Tables: `users`, `sessions`, `coach_profiles`, `subscriptions`, `user_blocks`, `verification_codes`, `chats`, `chat_members`, `messages`, `audit_logs`.
 
 ### 4.1 Conventions
 - **Primary keys: UUID v7** (`@default(uuid(7))`). Time-ordered, so new rows append to the end of the index (faster inserts, less bloat than random v4) and ids cannot be guessed like `1,2,3`.
@@ -131,6 +130,96 @@ Tables: `users`, `sessions`, `coach_profiles`, `subscriptions`, `blocks`, `one_t
 - **Soft delete** on users via `deleted_at`; "live" queries always include `deleted_at IS NULL`.
 - **Raw SQL lives in the migration file** for anything Prisma can't express (marked `RAW`). Prisma does not drop them (verified: `migrate dev` reports "in sync").
 - Never edit an applied migration. Add a new one: `pnpm prisma:migrate --name what_changed` (in `apps/api`). Use `--create-only` to hand-edit the SQL first.
+
+- **Naming standard** (applied by migration `standardize_column_and_table_names`): `snake_case` everywhere; **table names plural** (`audit_logs`, not `audit_log`); **booleans start with `is_`** (`is_approved`, `is_available`; a ban is not a boolean, it is the timestamp `banned_at`); **timestamps end in `_at`** (`banned_at`, `consumed_at`); **foreign keys are `<thing>_id`**; **no abbreviations** in column names (`sequence_number`, `client_message_id`, `failed_attempts`, `previous_refresh_token_hash`); **enum types are snake_case** (`user_role`, `session_audience`), enum values `UPPER_SNAKE`. Prisma model/field names stay camelCase and API field names are a separate contract, so a field can differ from its column (`lastReadSequenceNumber` in code, `last_read_sequence_number` in the database, mapped with `@map`; for chat the API and code now use the same full names as the columns); the data dictionary below always shows the column name.
+
+### 4.1b Data dictionary: every table and column
+Types are Postgres types. "Written by" = which code sets it. Column names are what Prisma Studio shows.
+
+**`users`** (one row per account)
+| Column | Type | Meaning and use |
+|---|---|---|
+| `id` | uuid (v7) | Primary key. Goes into the access token (`sub`) and every foreign key. |
+| `email` | text | Login name. Lowercase (CHECK) and unique among non-deleted users (partial unique index `users_email_active_key`). Never shown to other users. |
+| `password_hash` | text, null | Argon2id hash. Null = social-login-only account (later). |
+| `name` | text | Display name shown in People, chats and the admin panel. Searched with the trigram index. |
+| `role` (`user_role`) | enum | `MEMBER`, `COACH`, `SUPPORT`, `ADMIN`. Read from the database on every request. |
+| `banned_at` | timestamptz, null | The ONLY ban column: null = not banned, set = banned since then. The guard checks it on every request. Who banned and why is not stored here; it is in `audit_logs` (action `user.ban`, `actor_id` + `metadata.reason`). Written by `BanService.ban`; cleared on unban. |
+| `email_verified_at` | timestamptz, null | Set when the 6-digit email code is accepted (or a password reset proves the address). Null = the app shows "Check your email". |
+| `deleted_at` | timestamptz, null | Soft delete (account deletion). Live queries use `deleted_at IS NULL`. |
+| `created_at` / `updated_at` | timestamptz | Row bookkeeping. `updated_at` is maintained by Prisma. |
+
+**`sessions`** (one row per signed-in device; the refresh-token system, section 5.2)
+| Column | Meaning and use |
+|---|---|
+| `id` | Session id. Inside every access token (`sid`) and the first half of the refresh token. Revoking the row kills the tokens at once. |
+| `user_id` | Owner. |
+| `audience` (`session_audience`) | `MOBILE` or `ADMIN`: which client this login belongs to; a token for one cannot open the other's routes (the JWT `aud`). |
+| `device_id` / `device_name` | Random id the app makes once per install / a label such as "iPhone". One live session per device (partial unique index). |
+| `refresh_token_hash` | sha256 of the CURRENT refresh secret. The secret itself is never stored. |
+| `previous_refresh_token_hash` | sha256 of the PREVIOUS secret: detects a stolen, reused token and allows a short retry grace. |
+| `rotated_at` | When the refresh secret last changed (drives the 30 s grace window). |
+| `last_seen_at` | Last refresh/use; for a future "active devices" screen. |
+| `expires_at` | Inactivity limit; pushed forward on each refresh. |
+| `revoked_at` / `revoked_reason` (`session_revoke_reason`) | Set when the session ends (logout, replaced, reuse detected, banned, password changed). Null = live. |
+
+**`coach_profiles`** (extra data for users with role COACH; same id as the user)
+| Column | Meaning and use |
+|---|---|
+| `user_id` | Primary key AND foreign key to `users` (one profile per coach). |
+| `bio` | Short text shown on the coach card/profile. |
+| `specialties` | text[]; the tags on the coach card and the filter chips. GIN-indexed for "coach has specialty X". |
+| `is_approved` | An admin approved this coach. Unapproved coaches are invisible in People and cannot be chatted with. |
+| `is_available` | The coach switched "available now" on. Only available coaches get an enabled Call button. |
+
+**`subscriptions`** (one row per paying user; no row = never subscribed)
+| Column | Meaning and use |
+|---|---|
+| `user_id` | Unique: one subscription per user. |
+| `status` (`subscription_status`) | `TRIAL`, `ACTIVE`, `GRACE_PERIOD`, `CANCELLED_ACTIVE`, `EXPIRED`. With `expires_at` it decides `canCall` (`hasActiveAccess`). |
+| `plan` | `monthly` or `yearly`. |
+| `expires_at` | End of the current paid/trial period. |
+
+**`user_blocks`** ("blocker has blocked blocked"; hides both people from each other in People, chat and calls)
+`blocker_id`, `blocked_id` (together the primary key; CHECK they differ), `created_at`. The reverse index on `blocked_id` answers "who blocked me".
+
+**`verification_codes`** (6-digit emailed codes; formerly `one_time_codes`)
+| Column | Meaning and use |
+|---|---|
+| `user_id`, `purpose` (`verification_code_purpose`) | Whose code and what for (`EMAIL_VERIFICATION` or `PASSWORD_RESET`). |
+| `code_hash` | HMAC of the code (the code itself is never stored). |
+| `expires_at` | 10 minutes after creation. |
+| `failed_attempts` | Wrong guesses so far; at 5 the code is locked. |
+| `consumed_at` | Set when the code was used or replaced by a newer one; null = the one active code (partial unique index: one active code per user and purpose). |
+
+**`audit_logs`** (append-only: who did what to whom)
+`actor_id` (the admin or user who acted; null for system), `action` (`user.ban`, `password.reset`, ...), `target_type` / `target_id` (what it happened to, e.g. `user` + its id), `metadata` (jsonb details: reason, note), `created_at`.
+
+**`chats`** (a chat room; one row per DIRECT pair now, groups later)
+| Column | Meaning and use |
+|---|---|
+| `type` (`chat_type`) | `DIRECT` (two members) or `GROUP` (reserved, not built). |
+| `direct_key` | DIRECT only: `<smaller user id>:<larger user id>`, unique, so A-opens-B and B-opens-A are the same chat and a pair never has two. Null for groups (CHECK: DIRECT <=> has a key). |
+| `title` | GROUP only. |
+| `last_message_sequence_number` | Number of the newest message; the next message takes this + 1. |
+| `last_message_at` | Time of the newest message (sorts the Messages list). Null = empty chat, hidden from the list. |
+| `created_at` / `updated_at` | Row bookkeeping. |
+
+**`chat_members`** (junction: which users are in which chat, plus how far each has read)
+| Column | Meaning and use |
+|---|---|
+| `chat_id`, `user_id` | Together the primary key. A DIRECT chat has exactly two rows. Index on `user_id` = "my chats". |
+| `last_read_sequence_number` | The highest message number this user has read. A message is "seen" by them when its `sequence_number` is at or below it. Unread = `chats.last_message_sequence_number` minus this. Reading 1000 messages is ONE update of this one row; no message row is touched. The other member's number is the "Seen" tick. |
+| `joined_at` | When the user joined (a later group join would start with the chat's current number so old messages are not unread). |
+
+**`messages`**
+| Column | Meaning and use |
+|---|---|
+| `chat_id`, `sender_id` | Which chat and who wrote it (the recipient is the other member, so it is not stored). |
+| `sequence_number` | 1, 2, 3 ... inside the chat: the order everyone sees and the "give me everything after N" cursor. Unique per chat. |
+| `client_message_id` | Made by the sending app per message. Unique per sender: a retry after a bad connection returns the first message instead of saving a duplicate. |
+| `body` | The text (1 to 2000 characters, CHECK). |
+| `created_at` | When it was saved. |
 
 ### 4.2 Every state, and what it means
 
@@ -165,7 +254,7 @@ Tables: `users`, `sessions`, `coach_profiles`, `subscriptions`, `blocks`, `one_t
 
 Implemented in `apps/api/src/subscriptions/subscription-access.ts` (`hasActiveAccess`), unit tested.
 
-**`OneTimeCodePurpose`**: `EMAIL_VERIFICATION` (6-digit code after sign-up) or `PASSWORD_RESET` (used in the next step).
+**`VerificationCodePurpose`**: `EMAIL_VERIFICATION` (6-digit code after sign-up) or `PASSWORD_RESET` (used in the next step).
 
 #### States that arrive in later phases (defined now so we agree on the meaning)
 
@@ -201,10 +290,10 @@ An index is a sorted lookup structure: instead of reading every row, Postgres ju
 | Index | Why it exists |
 |-------|---------------|
 | `sessions(user_id)` | Find all sessions of a user (ban, logout-all, devices screen). Also makes `ON DELETE CASCADE` from users fast. |
-| `blocks(blocked_id)` | The primary key `(blocker_id, blocked_id)` serves "who did I block". This reverse index serves "who blocked me", needed for the either-direction check. |
-| `audit_log(actor_id, created_at)` | "What did this admin do, newest first." |
-| `audit_log(target_type, target_id, created_at)` | "History of this user." |
-| `audit_log(created_at)` | Global recent-activity feed. |
+| `user_blocks(blocked_id)` | The primary key `(blocker_id, blocked_id)` serves "who did I block". This reverse index serves "who blocked me", needed for the either-direction check. |
+| `audit_logs(actor_id, created_at)` | "What did this admin do, newest first." |
+| `audit_logs(target_type, target_id, created_at)` | "History of this user." |
+| `audit_logs(created_at)` | Global recent-activity feed. |
 
 **Unique index**: the database guarantees no duplicates (even if two requests race). `subscriptions(user_id)` (one row per user).
 
@@ -213,10 +302,10 @@ An index is a sorted lookup structure: instead of reading every row, Postgres ju
 |---------------|----------|-------------|
 | `users_email_active_key` UNIQUE `(email) WHERE deleted_at IS NULL` | One account per email. | A user who deleted their account can sign up again with the same email, because deleted rows are ignored. A normal unique index would block that forever. |
 | `sessions_user_device_live_key` UNIQUE `(user_id, device_id) WHERE revoked_at IS NULL` | One *live* session per device. | Old revoked sessions are kept for history and must not collide. Also stops two simultaneous logins on one phone from creating two live sessions. |
-| `users_banned_idx` `(banned_at DESC) WHERE is_banned` | Admin "banned users" list. | Maybe 20 banned users among 100,000. The index holds only those 20 entries. |
+| `users_banned_idx` `(banned_at DESC) WHERE banned_at IS NOT NULL` | Admin "banned users" list. | Maybe 20 banned users among 100,000. The index holds only those 20 entries. |
 | `sessions_user_live_idx` `(user_id) WHERE revoked_at IS NULL` | "Live sessions of a user." | Revoked sessions pile up forever; the index ignores them so it stays small as history grows. |
-| `coach_profiles_listable_idx` `(user_id) WHERE approved AND available` | People screen "Available now" coaches. | Few coaches are approved and online at any moment. |
-| `one_time_codes_active_key` UNIQUE `(user_id, purpose) WHERE consumed_at IS NULL` | At most ONE active code per user and purpose. | "Send a new code" first marks the old one consumed. If two requests race, the database refuses the second instead of leaving two valid codes. Used/replaced codes are kept as history without blocking anything. |
+| `coach_profiles_listable_idx` `(user_id) WHERE is_approved AND is_available` | People screen "Available now" coaches. | Few coaches are approved and online at any moment. |
+| `verification_codes_active_key` UNIQUE `(user_id, purpose) WHERE consumed_at IS NULL` | At most ONE active code per user and purpose. | "Send a new code" first marks the old one consumed. If two requests race, the database refuses the second instead of leaving two valid codes. Used/replaced codes are kept as history without blocking anything. |
 | `subscriptions_expiring_idx` `(expires_at) WHERE status IN (TRIAL, ACTIVE, GRACE_PERIOD, CANCELLED_ACTIVE)` | Background job finding subscriptions about to end. | Expired rows (the majority over time) never need that scan. |
 
 Important: for Postgres to use a partial index, the query's WHERE must **include the index condition**. That is why every "live user" query has `deletedAt: null` and every "live session" query has `revokedAt: null`. Because the email unique index is partial, Prisma has no `findUnique({ email })`; we use `findFirst({ email, deletedAt: null })`.
@@ -225,16 +314,17 @@ Important: for Postgres to use a partial index, the query's WHERE must **include
 
 **CHECK constraints**: the database refuses bad data even if app code has a bug.
 - `users_email_lowercase_chk`: `email = lower(email)`
-- `users_ban_consistent_chk`: a banned user must have `banned_at`
+- `chats_direct_key_check`: a DIRECT chat has a `direct_key`, a GROUP has none
+- `chat_members_last_read_sequence_number_check`, `chats_last_message_sequence_number_check`: counters never negative
 - `blocks_not_self_chk`: you cannot block yourself
-- `one_time_codes_attempts_chk`: wrong-guess counter can't go negative
+- `verification_codes_failed_attempts_chk`: wrong-guess counter can't go negative
 
 **Planned indexes (not created yet, with the use case)**
 | Where / when | Index | Why |
 |--------------|-------|-----|
 | People search (step 1.4) | `pg_trgm` GIN on `lower(users.name)` | `ILIKE '%ana%'` can't use a B-tree because of the leading `%`. Trigram index makes substring search fast. |
-| Chat (Phase 7) | UNIQUE `messages(sender_id, client_msg_id)` | Idempotency: a retried send can never create a duplicate message. |
-| Chat | `messages(conversation_id, seq)` | Fetch history pages and "everything after seq N" after reconnect. |
+| Chat (Phase 7) | UNIQUE `messages(sender_id, client_message_id)` | Idempotency: a retried send can never create a duplicate message. |
+| Chat | `messages(chat_id, sequence_number)` | Fetch history pages and "everything after seq N" after reconnect. |
 | Calls (Phase 3) | `calls(state) WHERE state IN ('RINGING','ACTIVE')` | Find live calls (busy check, ring timeout sweeper) among millions of finished ones. |
 | Calls | UNIQUE `call_participants(call_id, user_id)` | A person can't be in a call twice. |
 | Calls | UNIQUE `call_participants(call_id) WHERE role_in_call='COACH'` | **Enforces "exactly one coach per call" in the database itself.** |
@@ -289,7 +379,7 @@ Why two? A long-lived token sent on every request is dangerous if it leaks. A sh
 - Concurrent refreshes are safe: the update is conditional on the hash we read ("optimistic lock"); the loser re-reads and succeeds via the grace rule.
 - Why SHA-256 and not Argon2 for the refresh secret? It's 256 random bits, impossible to brute-force, and refresh must be cheap. Passwords are low-entropy, so they need the slow hash.
 
-**Why the guard also reads the database** (`jwt-auth.guard.ts`)
+**Why the guard also reads the database** (`session-auth.service.ts`, called by `jwt-auth.guard.ts` and by the socket gateway)
 A valid signature only proves the token was issued. To make logout and bans effective *immediately*, the guard (every request) also loads the session + user by primary key and rejects if the session is revoked/expired, the user is banned or deleted. Cost: one cheap indexed query per request. Role also comes from this DB read, not the token, so demoting an admin applies instantly. (Token claim `role` is a hint for the client UI only.)
 
 **Error codes the app switches on**
@@ -322,11 +412,11 @@ A valid signature only proves the token was issued. To make logout and bans effe
 | `GET /admin/users/:id` | SUPPORT, ADMIN | Read-only user detail. |
 | `POST /admin/users/:id/ban`, `/unban` | ADMIN only | See Section 7. |
 | `GET /people?kind=coaches\|members&q=&specialty=&available=&cursor=&limit=` | any logged-in mobile user | Hides yourself, banned/deleted, blocked (both directions), unapproved coaches. Returns no email. `q` = part of a name, any case. `specialty` / `available=true` apply to coaches only. Returns `{items, total, nextCursor}` (+ `specialties`: all specialties on offer, coaches tab only, for the filter chips); send `nextCursor` back as `cursor` for the next page (`null` = last page). Bad cursor -> 400. |
-| `GET /chat/conversations` | mobile user | My chats that have at least one message, newest first (max 50): `{id, other, lastSeq, unreadCount, lastMessage}`. Hides chats with banned/deleted/blocked people. |
-| `POST /chat/conversations` `{userId}` | mobile user | Start or reopen the chat with someone (same conversation both ways). 404 `USER_NOT_FOUND` for self/unknown/banned/staff/unapproved coach/blocked (a block looks like "missing"). |
-| `GET /chat/conversations/:id/messages?before=&after=&limit=` | participant | Newest page by default; `before=N` older; `after=N` newer (catch-up). Oldest first. Also `lastSeq`, `otherReadSeq`, `hasMore`. Non-participant -> 404. |
-| `POST /chat/conversations/:id/messages` `{clientMsgId, body}` | participant | Saves a message (1-2000 chars, trimmed). **Idempotent**: same `clientMsgId` returns the first message with `duplicate:true`. 403 `CANNOT_MESSAGE` if blocked/banned recipient. |
-| `POST /chat/conversations/:id/read` `{upToSeq}` | participant | "I have seen up to N". Only moves forward, capped at the newest message. |
+| `GET /chats` | mobile user | My chats that have at least one message, newest first (max 50): `{id, other, lastMessageSequenceNumber, unreadCount, lastMessage}`. Hides chats with banned/deleted/blocked people. |
+| `POST /chats` `{userId}` | mobile user | Start or reopen the chat with someone (same chat both ways). 404 `USER_NOT_FOUND` for self/unknown/banned/staff/unapproved coach/blocked (a block looks like "missing"). |
+| `GET /chats/:id/messages?before=&after=&limit=` | chat member | Newest page by default; `before=N` older; `after=N` newer (catch-up). Oldest first. Also `lastMessageSequenceNumber`, `otherLastReadSequenceNumber`, `hasMore`. Non-member -> 404. |
+| `POST /chats/:id/messages` `{clientMessageId, body}` | chat member | Saves a message (1-2000 chars, trimmed). **Idempotent**: same `clientMessageId` returns the first message with `duplicate:true`. 403 `CANNOT_MESSAGE` if blocked/banned recipient. |
+| `POST /chats/:id/read` `{upToSequenceNumber}` | chat member | "I have seen up to N". Only moves forward, capped at the newest message. |
 | `GET /health` | public | |
 
 Rate limit: 120 req/min per IP globally, **10/min on login/register/refresh** (HTTP 429). (Per-IP only for now; add per-account lockout later.)
@@ -334,7 +424,7 @@ Rate limit: 120 req/min per IP globally, **10/min on login/register/refresh** (H
 ---
 
 ### 5.5 Forgot / reset password (3 steps, 3 screens)
-- Built on the shared `OneTimeCodeService` (`auth/one-time-code.service.ts`): `cooldownLeft`, `issue`, `retire`, `verifyAndRun`. Email verification and password reset use it with different `purpose` values, so a code for one never works for the other (tested).
+- Built on the shared `VerificationCodeService` (`auth/verification-code.service.ts`): `cooldownLeft`, `issue`, `retire`, `verifyAndRun`. Email verification and password reset use it with different `purpose` values, so a code for one never works for the other (tested).
 - Flow: Sign in -> "Forgot password?" (under the password field) -> `ForgotPasswordScreen` (email; unknown email shows "We could not find an account" + "Create an account", which opens Register with the email filled in) -> `ResetCodeScreen` (6 boxes; a Verify button appears only once all 6 digits are typed) -> `NewPasswordScreen` (checklist) -> Sign in with a green "Password updated" notice.
 - **Why a reset token between step 2 and 3:** step 2 consumes the code and returns a short JWT (`aud: password-reset`, signed with a secret derived from the access secret, 10 min). It carries a fingerprint (`pwv`) of the current password hash, so after the password changes the token is dead: single use without a table. Step 3 needs only the token, never the code again.
 - If the token expires while the user types the new password, the app returns to the Forgot screen with a toast.
@@ -368,14 +458,37 @@ Rate limit: 120 req/min per IP globally, **10/min on login/register/refresh** (H
 - **Cursor paging** (keyset): the cursor is the last row's `(name, id)`; the next page asks for rows after it. Unlike `OFFSET`, page 50 is as fast as page 1 and nobody is repeated or skipped if the list changes between requests. We fetch `limit + 1` rows to know whether another page exists.
 - `total` counts everything matching the filters, not just the page.
 
-### 5.9 Chat (Phase 7, first slice: REST + polling)
-- **Tables:** `conversations` (one row per PAIR: `user_a_id < user_b_id` CHECK, unique pair, so "A to B" and "B to A" are the same row and self-chat is impossible) and `messages` (`seq` = 1,2,3 inside the chat; unique `(conversation_id, seq)` and unique `(sender_id, client_msg_id)`).
-- **Message numbers without races:** one `UPDATE conversations SET last_seq = last_seq + 1 ... RETURNING` inside the transaction takes the next number; the row lock makes parallel sends queue up (tested with 9 at once: numbers 1..9, no gaps).
-- **Idempotent send:** the app makes a `clientMsgId` for every message. A retry after a bad connection returns the same saved message, so nothing is duplicated (also when two identical requests race: the unique index decides and the loser fetches the winner).
-- **Unread without counting:** sending a message sets the sender's read marker to it, so `unreadCount = last_seq - my_read_seq`. "Seen" = the other side's `read_seq >= message.seq`.
-- **Privacy:** only the two people can read a chat (others get 404, not 403). Blocks hide the chat and stop sending; banned or deleted people are hidden.
-- **Mobile:** `Messages` (list, unread badge, refreshes every 5 s while visible), `Chat` (inverted list, bubbles, "Sending… / Not sent, tap to retry / Sent / Seen", loads older on scroll up, asks for newer messages every 3 s), `useChat` hook, `chatApi`. The chat opens as a layer over the tabs (from a Messages row or the chat button in People). Message numbers (`after=N`) are the catch-up cursor.
-- **Not built yet (Phase 7 remainder):** Socket.io real-time (polling is the stand-in), offline outbox that survives app restarts, typing, images, push notifications, day separators and the offline banner. Moving to sockets keeps the same REST endpoints for catch-up.
+### 5.9 Chat (Phase 7: REST for actions, sockets for live updates; see 5.10)
+- **Tables:** `chats` (`type` DIRECT/GROUP, unique `direct_key` = the two ids smaller-first, so A-to-B and B-to-A are the same row), `chat_members` (junction, one row per user per chat, holds `last_read_sequence_number`) and `messages` (`sequence_number` = 1,2,3 inside the chat; unique `(chat_id, sequence_number)` and unique `(sender_id, client_message_id)`). Only DIRECT is implemented; a group chat needs the same tables.
+- **Message numbers without races:** one `UPDATE chats SET last_message_sequence_number = last_message_sequence_number + 1 ... RETURNING` inside the transaction takes the next number; the row lock makes parallel sends queue up (tested with 9 at once: numbers 1..9, no gaps).
+- **Idempotent send:** the app makes a `clientMessageId` for every message. A retry after a bad connection returns the same saved message, so nothing is duplicated (also when two identical requests race: the unique index decides and the loser fetches the winner).
+- **"Seen" is one number per member:** sending a message moves the sender's own `last_read_sequence_number` to it; opening a chat sends `POST /chats/:id/read` which does `UPDATE chat_members SET last_read_sequence_number = N WHERE ... AND last_read_sequence_number < N` (one row, and nothing is written when it would not move forward). `unreadCount = last_message_sequence_number - my last_read_sequence_number`. "Seen" on my message = the other member's number >= its `sequence_number`. For a group the same numbers answer "seen by whom" (`>= N`) and "seen by all" (`MIN`).
+- **Privacy:** only members of a chat can read it (others get 404, not 403). Blocks hide the chat and stop sending; banned or deleted people are hidden.
+- **Mobile:** `Messages` (list, unread badge, reloads when the server pushes a change), `Chat` (inverted list, bubbles, "Sending… / Not sent, tap to retry / Sent / Seen", loads older on scroll up, shows pushed messages live), `useChat` hook, `chatApi`. The chat opens as a layer over the tabs (from a Messages row or the chat button in People). Message numbers (`after=N`) are the catch-up cursor.
+- **Not built yet (Phase 7 remainder):** sending through the socket instead of REST, a Redis adapter for several API servers, offline outbox that survives app restarts, typing, images, push notifications, day separators and the offline banner. The REST endpoints stay: they are also the catch-up path after a reconnect.
+
+### 5.10 Real-time (Socket.IO)
+**Idea:** the app used to ask "anything new?" every 3-5 seconds. Now the server PUSHES a small event when something changes. Sending and reading stay normal REST calls (tested, retryable, idempotent); the socket only carries server-to-app notifications. An event just says "something changed": the app can always fetch the truth with REST, so a lost event never loses a message.
+
+**Pieces and where they live**
+| Piece | File | Job |
+|---|---|---|
+| Event names and payload types | `packages/shared/src/realtime.ts` | `message:new` `{chatId, message}` and `chat:read` `{chatId, userId, lastReadSequenceNumber}`. One contract for API and app. |
+| "Is this token good right now?" | `apps/api/src/auth/session-auth.service.ts` | The checks that used to live in the guard (signature, audience, session revoked or expired, user banned or deleted). Used by BOTH HTTP and sockets. |
+| The door | `apps/api/src/realtime/realtime.gateway.ts` | Socket.IO on the same port as HTTP. Middleware checks the handshake token before accepting; an accepted socket joins its room `user:<id>`. |
+| The only API other code uses | `apps/api/src/realtime/realtime.service.ts` | `emitToUsers(userIds, event, payload)` and `disconnectUser(userId)`. Chat, ban and password reset call these; they never touch Socket.IO. |
+| Pushes | `chat.service.ts` | After the transaction commits: `message:new` to every member (not for retries), `chat:read` to every member (only when the number really moved forward). |
+| Kicks | `ban.service.ts`, `password-reset.service.ts`, `auth.service.ts` | After the commit: ban and password reset call `disconnectUser` (all of the user's devices); logout, stolen-refresh-token detection and a same-device re-login call `disconnectSession` (only that login's socket, via the room `session:<id>`). |
+| The connection | `apps/mobile/src/service/socket/socket.ts` | One shared socket. Token comes from the auth store on every (re)connect; `INVALID_TOKEN` -> refresh and retry; session-ended codes -> sign out; a server hang-up is answered by knocking again. |
+| Open and close | `apps/mobile/src/navigations/RootStack.tsx` | Connected exactly while `status === 'signedIn'`; reconnects when the app returns to the foreground. |
+| Open chat | `useChat.tsx` | Listens to both events. A pushed message with a gap before it triggers a catch-up fetch (`after=newest`). Also catches up on `connect` and when the app becomes active. |
+| Messages list | `useMessages.tsx` | Both events and `connect` invalidate the `['chats']` query. |
+
+**Why a room per USER and not per chat:** nobody has to "join a chat" (so no join-permission code to get wrong), the Messages list hears about every chat, and a group chat later is just a longer list of members to emit to.
+**Why emit after the commit:** nobody is told about a message that failed to save, and a receiver that reacts at once by fetching never reads data that is not committed yet. `RealtimeService.emitToUsers` also swallows (and logs) a push failure: the database change already succeeded, so the request must not turn into an error.
+**Session ended while the app runs:** the server closes the socket (see Kicks). The app sees `disconnect` with reason `io server disconnect`, knocks again, and the handshake answers with a code: `ACCOUNT_BANNED` or `SESSION_REVOKED` signs the user out, `INVALID_TOKEN` refreshes the token and reconnects. A plain network error is retried by Socket.IO. Not covered: a session that merely reaches its inactivity `expires_at` keeps an already-open socket until the next reconnect.
+**Tests:** `apps/api/test/realtime.e2e-spec.ts` (real sockets: bad tokens refused, members get events and outsiders do not, retries push once, read pushes only on progress, a ban, a logout or a same-device re-login closes the right socket). Mobile tests play the server with `test-utils/socket.ts` (`fakeSocket.receive(...)`).
+**Limits:** iOS closes sockets in the background (catch-up on foreground covers it; push notifications are a later phase). One API instance only; several need `@socket.io/redis-adapter`.
 
 ## 6. RBAC (role-based access control)
 
@@ -402,10 +515,10 @@ Defence in depth:
 ## 7. Ban flow (immediate)
 
 `POST /admin/users/:id/ban {reason, note?}` → `BanService.ban` (`moderation/ban.service.ts`):
-1. **One transaction:** set `is_banned/banned_at/ban_reason/banned_by_id` → revoke every live session (`BANNED`) → write audit entry `user.ban`.
-2. Later phases add the realtime part: after the commit, disconnect the user's sockets, end active calls and remove them from LiveKit rooms (target: within 5 s). Nothing listens yet, so there is no event today.
+1. **One transaction:** set `banned_at` (the reason and the admin go only into the audit entry) → revoke every live session (`BANNED`) → write audit entry `user.ban`.
+2. After the commit `BanService` calls `RealtimeService.disconnectUser`, which closes the user's open sockets at once (the app then tries to reconnect, is told `ACCOUNT_BANNED` and signs out). Calls (later) will also end active calls and remove the user from LiveKit rooms (target: within 5 s).
 
-Why it is immediate: the guard hits the database on every request, and sessions are revoked in the same transaction, so even a not-yet-expired access token is rejected on the next call (`401 SESSION_REVOKED`; with a surviving session it would be `403 ACCOUNT_BANNED`). Login and refresh also refuse. Unban clears the flag but leaves old sessions dead: the user signs in again.
+Why it is immediate: the guard hits the database on every request, and sessions are revoked in the same transaction, so even a not-yet-expired access token is rejected on the next call (`401 SESSION_REVOKED`; with a surviving session it would be `403 ACCOUNT_BANNED`). Login and refresh also refuse. Unban clears `banned_at` but leaves old sessions dead: the user signs in again.
 
 Idempotent: banning twice does nothing extra (and writes one audit row). Reason must be one of a fixed list (matches the admin UI).
 
@@ -424,6 +537,10 @@ Idempotent: banning twice does nothing extra (and writes one audit row). Reason 
 | Seed refuses `NODE_ENV=production` | Dev passwords must never reach a real database. | 2026-10 |
 | Monorepo like the Zenkoders boilerplate (pnpm + Turborepo, `apps/*`, `packages/shared`) | One contract (zod schemas + route list) for API, mobile and web; same layout on every Zenkoders project. | 2026-10 |
 | API validates with zod schemas from `@coach-connect/shared` (`@Body({ schema })`), not class-validator DTOs | The mobile forms and the API cannot drift; unknown fields are rejected with `z.strictObject`. Errors are `{ message, errors: { field: [..] } }`. | 2026-10 |
+| Chat = `chats` + `chat_members` (junction) + `messages`; read position is one number per member | "Seen" for 1000 messages is a single-row update, not a write per message; the same shape serves group chats later (`chats.type`), with no A/B column trick. | 2026-10 |
+| A ban is one column, `users.banned_at`; reason and admin only in `audit_logs` | `is_banned`, `ban_reason`, `banned_by_id` repeated what `banned_at` and the audit entry already say. Add a `user_bans` history table only if the admin panel needs per-user ban history. | 2026-10 |
+| `one_time_codes` renamed `verification_codes` | Says what it is for (verify email, reset password); "one time" described how it is used, not what it is. | 2026-10 |
+| Real-time = Socket.IO server push, REST for actions, one room per user | Push removes the polling traffic; keeping send and read on REST keeps them idempotent, retryable and already tested; a user room needs no join logic. Calls will reuse the same socket. | 2026-10 |
 | Mobile stays bare React Native; only the boilerplate's structure was adopted | Our native setup (Keychain, signed simulator builds) works; Expo CNG would be a migration with no product benefit now. | 2026-10 |
 
 ## 8b. Mobile app structure (`apps/mobile/`)
@@ -449,7 +566,7 @@ src/
     api/*.api.ts             Plain request functions per domain (authApi, peopleApi, chatApi), typed with @coach-connect/shared
     setup/                   apiClient.ts (apiRequest + ApiError), withAuth.ts (token refresh), handleApiError.ts (error -> toast)
   store/                     auth.store.ts, toast.store.ts (Zustand), secureStorage.ts (Keychain)
-  utils/                     helpers/ (passwordRules, time, validation), hooks/ (useCountdown, useDebounced, useInterval), types/ (navigationType)
+  utils/                     helpers/ (passwordRules, time, validation), hooks/ (useCountdown, useDebounced), service/socket/ (the one Socket.IO connection), types/ (navigationType)
 __tests__/                   mirrors src/ (screens, components, service, store, utils) + App.test.tsx (real navigation)
 test-utils/                  render (with React Query), byLabel/press/typeInto helpers, navigation mock
 ```
@@ -459,7 +576,7 @@ Import alias: `@/` = the `apps/mobile` folder (`@/src/components`). It is set in
 - Bare RN, not Expo (no `app.config.ts`, `ios/` and `android/` are committed). Keychain instead of `expo-secure-store`; no MMKV yet.
 - `fetch` + our own `ApiError(status, code, message, data)` instead of axios + `handleRequest`. Hooks *throw* (React Query expects it) and the toast shows `error.message`; `code` drives behaviour.
 - No `react-native-responsive-screen` / `RFValue`: sizes are plain points taken from the design.
-- Chat messages use our own hook (`useChat`: optimistic send, retry with the same `clientMsgId`, 3 s polling) instead of React Query, because pending messages and "seen" do not fit a plain query. People and Messages use React Query (`useInfiniteQuery` / `useQuery` with `refetchInterval`).
+- Chat messages use our own hook (`useChat`: optimistic send, retry with the same `clientMessageId`, live updates from the socket) instead of React Query, because pending messages and "seen" do not fit a plain query. People and Messages use React Query (`useInfiniteQuery` / `useQuery`; Messages is invalidated by socket events).
 - The bottom tab bar is hand-made (`home/main`), inside ONE native-stack screen. Native stack only (never `@react-navigation/stack`).
 
 **Navigation = sign-in status.** `RootStack` shows a different group of screens per `auth.store` `status`: `signedOut` -> Sign in / Create account / Forgot password / Enter the code / New password; signed in but email not verified -> Verify email; `offline` -> Offline; otherwise Main + Chat. When the status changes the whole group swaps, so nobody can reach a signed-in screen while signed out and nobody calls `navigate()` after signing in. Forgot password passes data through route params (`ResetCode {email, resendSeconds}`, `NewPassword {resetToken}`); finishing it does `CommonActions.reset` to Sign in with `{passwordUpdated: true}`.
@@ -475,6 +592,16 @@ Screens: `Splash` (green, determinate progress bar), `SignIn`, `Register`, `Cust
 **Run it on the iOS simulator:** (1) API running on port 3000, (2) `cd apps/mobile && pnpm dev` (Metro), (3) `pnpm ios` (or build in Xcode and open the app). Log in as `sara@coachconnect.dev` / `Password123!`. Placeholder to change before release: the iOS bundle id is still the template's `org.reactjs.native.example.CoachConnect` and Android's is `com.coachconnect`.
 
 **Native paths in a monorepo.** Dependencies are hoisted to the repo root, so `ios/CoachConnect.xcodeproj` points `REACT_NATIVE_PATH` at `${PODS_ROOT}/../../../../node_modules/react-native` and `android/settings.gradle` includes `../../../node_modules/@react-native/gradle-plugin`. `metro.config.js` watches the root `node_modules` and `packages/shared`.
+
+### 8b.1 Rendering rules (found by testing on an iPhone 17 Pro and an iPhone SE)
+- **Keyboard and the bottom padding:** a bottom bar (chat composer, pinned buttons) carries extra padding for the home indicator. With the keyboard open that padding is an empty strip, so `useKeyboardVisible` (`utils/hooks`) drops it: the chat `Composer` uses 10 instead of the safe-area value, and `CustomWrapper` (with `keyboardAvoidingView`) shrinks a screen's bottom padding to 16.
+- **Typing must not re-render the list:** the chat draft text and keyboard state live INSIDE the `Composer` component, the list data is `useMemo`'d and `Bubble` is `memo`'d, so a keystroke re-renders only the text box.
+- **Larger system text (Dynamic Type):** text scales with the phone's setting, but headings, tab labels, chips, buttons, inputs and names sit in fixed layouts. They use `maxFontSizeMultiplier` from `MAX_FONT_SCALE` (`constants/theme/ui.ts`: title 1.3, chrome 1.2, control 1.3). Chat message text and plain body text stay uncapped on purpose (people who need big text still get it). New screens: add the cap to titles and anything in a pill, chip or fixed-height box.
+- **Avatars:** the circle never shrinks in a crowded row (`flexShrink: 0`), its letters do not scale (`allowFontScaling={false}`), and initials are taken per character, not per UTF-16 unit, so an emoji is never cut in half (`initialsOf`).
+- **Safe area:** every tab uses `insets.top + 12` for its top padding (Profile had a fixed 76, wrong on other phones) and a 20-point side margin.
+- **Lists must not jump while searching or filtering (People):** (1) `refreshing` on a `FlatList` means "the user pulled down", NEVER "something is loading": on iOS the pull-to-refresh spinner pushes the whole list down, so `usePeople` keeps its own `pulling` flag; (2) while a new search loads, the old rows stay (`keepPreviousData`) and the list goes back to the top when the new rows arrive; (3) `items` is `useMemo`'d, `renderItem`/handlers are `useCallback`'d and `CustomPersonRow` is `memo`'d, so typing in the search box redraws no rows; (4) answers stay fresh 20 s (`staleTime`), so returning to a filter you just used shows it instantly with no background refetch. Found with a screen recording: `xcrun simctl io <device> recordVideo f.mp4`, then `ffmpeg -i f.mp4 -vf "fps=2,scale=230:-1,tile=6x3" sheet.png` to see motion that single screenshots miss; a temporary delay in the API call makes the loading state last long enough to see.
+- **Email fields** (`keyboardType="email-address"`) turn off autocorrect and spell-check by default (`CustomTextInput`).
+- **Socket vs sign-out:** the server closes the socket on logout; the store flag `signingOut` stops the socket code from treating that as "your session ended" (it used to show that banner after a normal sign-out).
 
 ### 8c. Admin web panel (`apps/web/`)
 - **Stack:** Next.js (App Router) + TypeScript, plain CSS Modules with design tokens in `globals.css` (chosen over Tailwind: fewer new concepts for a first Next.js project; can be added later). Fonts: Bricolage Grotesque (headings), Hanken Grotesk (body).
@@ -502,6 +629,7 @@ Source of truth: `apps/mobile/scripts/generate-icons.mjs` (draws the "C inside C
 - **Unit tests** (`*.spec.ts`): pure logic (e.g. `hasActiveAccess`). Fast, no DB.
 - **Integration tests** (`test/*.e2e-spec.ts`): boot the real Nest app against the `coachconnect_test` database, tables truncated before each test. They cover: register/login, hashing, rotation, grace window, theft detection, logout, tampered tokens, audience separation, RBAC, ban side effects, idempotent ban, unban.
 - We *mutation-checked* the key tests (disabled the ban check / session revoke on purpose; the tests failed as they should).
+- **Manual check list (mobile, on the simulator)** after any UI change: (1) every tab on iPhone 17 Pro and on iPhone SE (`xcrun simctl create` a "iPhone SE (3rd generation)"); (2) open the keyboard on Sign in, Create account, Forgot password, Search and the chat: no empty strip, the button and input stay visible; (3) a chat with a very long message, a long unbroken string, emoji and line breaks; (4) long names and many specialties in People; (5) system text size at accessibility-extra-large (`xcrun simctl ui <device> content_size accessibility-extra-large`) and back to `large`; (6) dark mode (the app stays light; the status bar must stay readable); (7) sign out: no "session ended" banner. Note: the simulator's typing tool can drop characters in long strings in a debug build; type in chunks or tap Sign in again before assuming an app bug.
 - Not tested yet: rate limiting (disabled when `NODE_ENV=test`), concurrent registration race.
 
 ## 11. Open product decisions (need client answers)
@@ -519,10 +647,10 @@ Phase 1 remaining: Google/Apple sign-in; change password (B4); admin cookie logi
 - **2026-10-26, Auth flow (mobile):** M4 auth store with session restore.
 - **2026-10-26, Auth flow (mobile):** M5 automatic refresh (`withAuth`, single shared refresh); M6/M7b root gate and Sign in wired to the backend; temporary Home screen; 43 mobile tests.
 - **2026-10-26, first run on a simulator:** real login, wrong-password error, silent token refresh and restart persistence verified on iPhone 17 Pro. Fixed: stale form errors now clear on edit; app no longer hangs on the splash if Keychain fails.
-- **2026-10-26, Auth flow (batch 2):** new splash (green, SVG "C inside C" logo, determinate bar) + green native launch screens; email verification backend (mailer, `one_time_codes`, HMAC codes, attempt limit, cooldown); Create account and Verify email screens; Root switch; backend 41 tests, mobile 63 tests.
+- **2026-10-26, Auth flow (batch 2):** new splash (green, SVG "C inside C" logo, determinate bar) + green native launch screens; email verification backend (mailer, `verification_codes` (then called `one_time_codes`), HMAC codes, attempt limit, cooldown); Create account and Verify email screens; Root switch; backend 41 tests, mobile 63 tests.
 - **2026-10-26, verified on the simulator:** splash, Sign in, Create account (live password tick), Verify email (wrong code -> "4 tries left", right code -> Home) against the real backend; fixed refocus bug; 64 mobile + 41 backend tests.
 - **2026-10-26, admin web started:** Next.js 16 scaffold (static export in production, dev proxy), sign-in page (design A1) and dashboard shell (A2) connected to the real backend; session helper with logout; 8 admin tests. App icon added for iOS and Android. Port-in-use fix documented.
-- **2026-10-27, forgot / reset password:** shared `OneTimeCodeService` (refactor, tests stayed green), `POST /auth/password/forgot` + `/reset` (no account leak, signs out all devices), mobile Forgot + Reset screens with shared CodeInput/ResendRow; verified end to end on the simulator. Backend 55 integration + 7 unit tests, mobile 79 tests.
+- **2026-10-27, forgot / reset password:** shared `VerificationCodeService` (then `OneTimeCodeService`; refactor, tests stayed green), `POST /auth/password/forgot` + `/reset` (no account leak, signs out all devices), mobile Forgot + Reset screens with shared CodeInput/ResendRow; verified end to end on the simulator. Backend 55 integration + 7 unit tests, mobile 79 tests.
 - **2026-10-26, auth polish + real email:** errors shown as toasts in the app; password rule (lowercase + uppercase + number) with live checklist; "Open mail app" removed and Verify button appears at 6 digits; "Forgot password?" moved under the password field; reset is now 3 steps (email -> code -> new password) with a single-use reset token; unknown email says so and offers "Create an account"; mailer drivers `console`/`smtp`/`resend` with start-up validation and `pnpm mail:test`. Verified on the simulator end to end. Backend 68 integration + 20 unit tests, mobile 120 tests.
 
 - **2026-10-26, People search (step 1.4b):** `q`, `specialty`, `available`, cursor paging, trigram index; separate verification/reset email templates; mail on port 465 note. Backend 73 integration + 21 unit tests.
@@ -530,3 +658,9 @@ Phase 1 remaining: Google/Apple sign-in; change password (B4); admin cookie logi
 - **2026-10-26, chat (first slice):** conversations/messages tables, REST API (open, list, page, idempotent send, read receipts), Messages list and Chat room screens with polling. Verified on the simulator with a coach account answering via the API (message arrived, "Seen" shown). Backend 92 integration tests, mobile 148.
 - **2026-10-26, monorepo refactor (boilerplate layout):** `mobile/`, `backend/`, `admin/` moved to `apps/mobile`, `apps/api`, `apps/web`; pnpm + Turborepo; new `packages/shared` (zod schemas, `API_ROUTES`, types, constants) and `packages/tsconfig`. API now validates with the shared zod schemas through a global `ZodValidationPipe` (class-validator DTOs removed), env validated with zod, OpenAPI at `/docs`. Mobile restructured to the boilerplate folders (`components/common/Custom*`, `screens/<module>/<screen>` + `hook/`, `service`, `store`, `constants`, `utils`), native-stack navigation driven by sign-in status, React Query for People/Messages/Profile. Backend 94 integration + 21 unit tests, mobile 155, web 8, shared 6.
 - **2026-10-27, cleanup pass:** removed everything nothing imported: 17 unused native libraries from the app (list and how to restore them in section 1.2), the unused `push_tokens` table and `subscriptions.source/last_event_id` (migration `drop_unused_push_tokens_and_subscription_source`), the event emitter and the log-only ban listener, unused props/variants/theme tokens/exports, template READMEs, the mismatched root prettier config. Podfile is the standard RN one again. All suites green; iOS app rebuilt.
+- **2026-10-27, database naming standard:** migration `standardize_column_and_table_names` (renames only, no data touched): `audit_log`->`audit_logs`, `blocks`->`user_blocks`, booleans got `is_`, abbreviations spelled out (`seq`->`sequence_number`, `attempts`->`failed_attempts`, `refresh_hash`->`refresh_token_hash`, ...), enum types snake_case. Full data dictionary in section 4.1b. 94 integration + 21 unit tests green.
+- **2026-10-27, chat tables, bans, verification codes:** migration `chats_chat_members_banned_at_verification_codes` (data kept): `conversations` -> `chats` (+ `type`, `direct_key`, `title`, `updated_at`), new `chat_members` junction holding each user's `last_read_sequence_number` (replaces `user_a/b_last_read_seq` and the `user_a_id/user_b_id` pair), `messages.conversation_id` -> `chat_id`; `users.is_banned/ban_reason/banned_by_id` dropped (only `banned_at` stays, the admin user detail reads the reason from the audit log); `one_time_codes` -> `verification_codes`. API routes are now `/chats...` and chat fields use full names (`sequenceNumber`, `clientMessageId`, `lastMessageSequenceNumber`, `otherLastReadSequenceNumber`, `upToSequenceNumber`). 96 integration + 21 unit tests, mobile 155, shared 6, web 8.
+- **2026-10-27, real-time chat (Socket.IO):** polling removed (3 s in a chat, 5 s on the list). New `SessionAuthService` (guard logic shared with sockets), `realtime/` module (gateway, `RealtimeService`), shared `realtime.ts`, mobile `service/socket`. New messages and reads are pushed; bans and password resets close sockets. `@nestjs/websockets` and `platform-socket.io` pinned to 12.2.0 to match `@nestjs/common` 12.2.0 (12.3.x needs a newer common). 101 integration + 21 unit tests, mobile 160.
+
+- **2026-10-27, mobile rendering pass (iPhone 17 Pro + iPhone SE, large text, dark mode):** fixed the empty strip above the keyboard in the chat (and the oversized gap under pinned buttons on auth screens), typing re-rendering the whole chat list (draft state moved into `Composer`, list memoised), emoji names giving a broken avatar glyph, Profile using a fixed top padding and a different side margin, the "session ended" banner after a normal sign-out (socket reacted to the logout), spell-check squiggles in email fields, and several layouts breaking at large system text (titles, tab bar, avatars, segment control, chips, buttons, Profile rows). Rules are in section 8b.1. Mobile 177 tests (new: avatar initials, socket error handling).
+- **2026-10-27, People list jump:** searching or tapping a specialty chip pushed the list down and back (the refresh spinner was tied to `isFetching`) and every keystroke redrew every row (new `items` array and `renderItem` each render). Fixed in `usePeople`/`People`/`CustomPersonRow` (rules in section 8b.1). Mobile 181 tests (4 new in People).

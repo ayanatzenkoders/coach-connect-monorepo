@@ -19,7 +19,7 @@ export class PeopleService {
       {
         role: isCoaches ? 'COACH' : 'MEMBER',
         id: { not: me },
-        isBanned: false,
+        bannedAt: null,
         deletedAt: null,
         // "I blocked them" and "they blocked me" both hide the person.
         blocksReceived: { none: { blockerId: me } },
@@ -94,7 +94,7 @@ export class PeopleService {
       SELECT DISTINCT unnest(cp.specialties) AS s
       FROM coach_profiles cp
       JOIN users u ON u.id = cp.user_id
-      WHERE cp.approved AND NOT u.is_banned AND u.deleted_at IS NULL
+      WHERE cp.is_approved AND u.banned_at IS NULL AND u.deleted_at IS NULL
       ORDER BY s`;
     return rows.map((r) => r.s);
   }

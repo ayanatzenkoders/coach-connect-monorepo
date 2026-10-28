@@ -14,6 +14,7 @@ import { HealthModule } from './health/health.module.js';
 import { MailModule } from './mail/mail.module.js';
 import { PeopleModule } from './people/people.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
+import { RealtimeModule } from './realtime/realtime.module.js';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
     AuditModule,
     MailModule,
     AuthModule,
+    RealtimeModule,
     AdminModule,
     PeopleModule,
     ChatModule,

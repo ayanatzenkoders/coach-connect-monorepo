@@ -3,7 +3,7 @@ import { AppException } from '../common/errors/app.exception.js';
 import { MailerService } from '../mail/mailer.service.js';
 import { verifyEmailEmail } from '../mail/templates.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { CODE_TTL_SECONDS, OneTimeCodeService, RESEND_COOLDOWN_SECONDS } from './one-time-code.service.js';
+import { CODE_TTL_SECONDS, VerificationCodeService, RESEND_COOLDOWN_SECONDS } from './verification-code.service.js';
 
 const PURPOSE = 'EMAIL_VERIFICATION' as const;
 
@@ -15,7 +15,7 @@ export class EmailVerificationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mailer: MailerService,
-    private readonly codes: OneTimeCodeService,
+    private readonly codes: VerificationCodeService,
   ) {}
 
   /** Create a new code and email it. Replaces any older active code. */

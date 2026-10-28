@@ -2,19 +2,19 @@ import React from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CustomAvatar } from '@/src/components';
-import { COLORS, TEXT } from '@/src/constants';
-import type { ConversationSummary } from '@/src/service/api/chat.api';
+import { COLORS, MAX_FONT_SCALE, TEXT } from '@/src/constants';
+import type { ChatSummary } from '@/src/service/api/chat.api';
 import { listTime } from '@/src/utils/helpers';
 import { useMessages } from './hook/useMessages';
 
-/** Screen 09: my conversations, newest first, with the unread count. */
+/** Screen 09: my chats, newest first, with the unread count. */
 const Messages: React.FC = () => {
   const insets = useSafeAreaInsets();
   const m = useMessages();
 
   return (
     <View style={styles.flex}>
-      <Text accessibilityRole="header" style={[TEXT.title, styles.title, { paddingTop: insets.top + 12 }]}>
+      <Text accessibilityRole="header" maxFontSizeMultiplier={MAX_FONT_SCALE.title} style={[TEXT.title, styles.title, { paddingTop: insets.top + 12 }]}>
         Messages
       </Text>
       <FlatList
@@ -23,7 +23,7 @@ const Messages: React.FC = () => {
         refreshing={false}
         onRefresh={m.refresh}
         contentContainerStyle={styles.list}
-        renderItem={({ item }) => <Row conversation={item} meId={m.meId} onPress={() => m.open(item)} />}
+        renderItem={({ item }) => <Row chat={item} meId={m.meId} onPress={() => m.open(item)} />}
         ListEmptyComponent={
           m.loading ? (
             <ActivityIndicator accessibilityLabel="Loading messages" color={COLORS.primary} style={styles.loader} />
@@ -41,7 +41,7 @@ const Messages: React.FC = () => {
 
 export default Messages;
 
-function Row({ conversation: c, meId, onPress }: { conversation: ConversationSummary; meId: string; onPress: () => void }) {
+function Row({ chat: c, meId, onPress }: { chat: ChatSummary; meId: string; onPress: () => void }) {
   const unread = c.unreadCount > 0;
   const preview = c.lastMessage ? `${c.lastMessage.senderId === meId ? 'You: ' : ''}${c.lastMessage.body}` : '';
   return (

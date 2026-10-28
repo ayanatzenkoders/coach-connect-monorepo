@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { BackIcon, CustomButton, CustomPasswordChecklist, CustomTextInput, CustomWrapper } from '@/src/components';
-import { COLORS, MIN_TOUCH, SPACING, TEXT } from '@/src/constants';
+import { COLORS, MIN_TOUCH, SPACING, MAX_FONT_SCALE, TEXT } from '@/src/constants';
 import type { RootStackScreenProps } from '@/src/utils/types';
 import { useNewPassword } from './hook/useNewPassword';
 
@@ -18,7 +18,7 @@ const NewPassword: React.FC<Props> = ({ route }) => {
       </Pressable>
 
       <View style={styles.header}>
-        <Text accessibilityRole="header" style={TEXT.title}>
+        <Text accessibilityRole="header" maxFontSizeMultiplier={MAX_FONT_SCALE.title} style={TEXT.title}>
           Choose a new password
         </Text>
         <Text style={TEXT.body}>Your code is correct. Now pick a new password for your account.</Text>

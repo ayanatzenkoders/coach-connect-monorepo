@@ -3,15 +3,15 @@ import { MESSAGE_MAX_LENGTH } from "../constants";
 import { IdSchema } from "./common";
 
 
-export const OpenConversationInputSchema = z.strictObject({
+export const OpenChatInputSchema = z.strictObject({
   /** The person to chat with. */
   userId: IdSchema,
 });
-export type OpenConversationInput = z.infer<typeof OpenConversationInputSchema>;
+export type OpenChatInput = z.infer<typeof OpenChatInputSchema>;
 
 export const SendMessageInputSchema = z.strictObject({
   /** Made by the app for every message. Sending the same one twice saves the message once. */
-  clientMsgId: z.string().min(8).max(64),
+  clientMessageId: z.string().min(8).max(64),
   body: z.string().trim().min(1).max(MESSAGE_MAX_LENGTH),
 });
 export type SendMessageInput = z.infer<typeof SendMessageInputSchema>;
@@ -27,6 +27,6 @@ export type MessagesQueryParsed = z.infer<typeof MessagesQuerySchema>;
 
 export const MarkReadInputSchema = z.strictObject({
   /** The newest message number the person has seen. */
-  upToSeq: z.coerce.number().int().min(1),
+  upToSequenceNumber: z.coerce.number().int().min(1),
 });
 export type MarkReadInput = z.infer<typeof MarkReadInputSchema>;

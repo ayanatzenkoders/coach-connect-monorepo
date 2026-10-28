@@ -9,6 +9,7 @@ export default defineConfig({
     constants: "src/constants.ts",
     schemas: "src/schemas/index.ts",
     types: "src/types.ts",
+    realtime: "src/realtime.ts",
   },
   format: ["esm", "cjs"],
   dts: true,

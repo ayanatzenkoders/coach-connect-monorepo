@@ -14,7 +14,7 @@ const device = { deviceId: "device-aaaaaaaa" };
 
 describe("routes", () => {
   it("fills in :params and escapes them", () => {
-    expect(withParams(API_ROUTES.chat.messages, { id: "abc" })).toBe("/chat/conversations/abc/messages");
+    expect(withParams(API_ROUTES.chat.messages, { id: "abc" })).toBe("/chats/abc/messages");
     expect(withParams(API_ROUTES.admin.user, { id: "a/b" })).toBe("/admin/users/a%2Fb");
   });
 });
@@ -51,8 +51,8 @@ describe("people and chat schemas", () => {
   });
 
   it("trims messages and refuses blank or oversized ones", () => {
-    expect(SendMessageInputSchema.parse({ clientMsgId: "client-12345", body: "  hi  " }).body).toBe("hi");
-    expect(SendMessageInputSchema.safeParse({ clientMsgId: "client-12345", body: "   " }).success).toBe(false);
-    expect(SendMessageInputSchema.safeParse({ clientMsgId: "client-12345", body: "x".repeat(2001) }).success).toBe(false);
+    expect(SendMessageInputSchema.parse({ clientMessageId: "client-12345", body: "  hi  " }).body).toBe("hi");
+    expect(SendMessageInputSchema.safeParse({ clientMessageId: "client-12345", body: "   " }).success).toBe(false);
+    expect(SendMessageInputSchema.safeParse({ clientMessageId: "client-12345", body: "x".repeat(2001) }).success).toBe(false);
   });
 });

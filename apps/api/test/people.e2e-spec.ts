@@ -47,7 +47,7 @@ describe('GET /people', () => {
     await seedUser(prisma, 'gone@x.com', 'MEMBER', 'Gone');
     await seedUser(prisma, 'staff@x.com', 'ADMIN', 'Staff');
     await coach('a@x.com', 'Amara');
-    await prisma.user.updateMany({ where: { email: 'banned@x.com' }, data: { isBanned: true, bannedAt: new Date() } });
+    await prisma.user.updateMany({ where: { email: 'banned@x.com' }, data: { bannedAt: new Date() } });
     await prisma.user.updateMany({ where: { email: 'gone@x.com' }, data: { deletedAt: new Date() } });
     expect(names(await list('me@x.com', 'members'))).toEqual(['Bob', 'Cara']);
   });

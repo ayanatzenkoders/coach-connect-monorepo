@@ -2,7 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import { createApp, resetDb, api, login, bearer, seedUser, PASSWORD } from './helpers.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { MailerService } from '../src/mail/mailer.service.js';
-import { MAX_ATTEMPTS } from '../src/auth/one-time-code.service.js';
+import { MAX_ATTEMPTS } from '../src/auth/verification-code.service.js';
 
 describe('Forgot password: email -> verify code -> new password', () => {
   let app: INestApplication;
@@ -115,7 +115,7 @@ describe('Forgot password: email -> verify code -> new password', () => {
       await seedUser(prisma, 'ana@example.com', 'MEMBER');
       await forgot('ana@example.com');
       const code = lastCode('ana@example.com');
-      await prisma.oneTimeCode.updateMany({ data: { expiresAt: new Date(Date.now() - 1000) } });
+      await prisma.verificationCode.updateMany({ data: { expiresAt: new Date(Date.now() - 1000) } });
       expect((await verifyCode('ana@example.com', code)).body.code).toBe('CODE_EXPIRED');
     });
 

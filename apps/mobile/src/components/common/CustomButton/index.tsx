@@ -1,6 +1,6 @@
 import React from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
-import { COLORS, CONTROL_HEIGHT, RADIUS } from '@/src/constants';
+import { COLORS, CONTROL_HEIGHT, MAX_FONT_SCALE, RADIUS } from '@/src/constants';
 
 import type { CustomButtonProps } from './interface';
 
@@ -23,7 +23,9 @@ export function CustomButton({ title, onPress, variant = 'primary', loading = fa
       {loading ? (
         <ActivityIndicator color={variant === 'outline' ? COLORS.ink : COLORS.onPrimary} />
       ) : (
-        <Text style={[styles.label, variant === 'outline' && { color: COLORS.ink }]}>{title}</Text>
+        <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={[styles.label, variant === 'outline' && { color: COLORS.ink }]}>
+          {title}
+        </Text>
       )}
     </Pressable>
   );

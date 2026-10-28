@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
-import { COLORS, CONTROL_HEIGHT, RADIUS, TEXT } from '@/src/constants';
+import { COLORS, CONTROL_HEIGHT, MAX_FONT_SCALE, RADIUS, TEXT } from '@/src/constants';
 
 import type { CustomTextInputProps } from './interface';
 
@@ -10,12 +10,20 @@ export function CustomTextInput({ label, error, ...inputProps }: CustomTextInput
   const borderColor = error ? COLORS.error : focused ? COLORS.primary : COLORS.border;
   const borderWidth = error || focused ? 2 : 1;
 
+  // An email address is not a word: no spell-check squiggles, no autocorrect, no capital first letter.
+  // (Placed before {...inputProps} so a screen can still override.)
+  const emailDefaults = inputProps.keyboardType === 'email-address' ? { autoCorrect: false, spellCheck: false, autoCapitalize: 'none' as const } : undefined;
+
   return (
     <View style={styles.wrapper}>
-      <Text style={TEXT.label}>{label}</Text>
+      <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={TEXT.label}>
+        {label}
+      </Text>
       <TextInput
+        {...emailDefaults}
         {...inputProps}
         accessibilityLabel={label}
+        maxFontSizeMultiplier={MAX_FONT_SCALE.control} // the box has a fixed height, so its text cannot grow without limit
         placeholderTextColor={COLORS.inkMuted}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}

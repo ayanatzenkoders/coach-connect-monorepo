@@ -22,13 +22,13 @@ export const API_ROUTES = {
   },
   people: "/people",
   chat: {
-    conversations: "/chat/conversations",
-    messages: "/chat/conversations/:id/messages",
-    read: "/chat/conversations/:id/read",
+    chats: "/chats",
+    messages: "/chats/:id/messages",
+    read: "/chats/:id/read",
   },
 } as const;
 
-/** `withParams(API_ROUTES.chat.messages, { id })` -> "/chat/conversations/<id>/messages" */
+/** `withParams(API_ROUTES.chat.messages, { id })` -> "/chats/<id>/messages" */
 export function withParams(route: string, params: Record<string, string>): string {
   return route.replace(/:(\w+)/g, (_, name: string) => encodeURIComponent(params[name] ?? ""));
 }

@@ -10,5 +10,5 @@ export const CodeSchema = z.string().regex(new RegExp(`^\\d{${CODE_LENGTH}}$`), 
 /** Random id the app creates once per install and keeps in secure storage. */
 export const DeviceIdSchema = z.string().min(8).max(128);
 
-/** A UUID (ids of users and conversations). */
+/** A UUID (ids of users and chats). */
 export const IdSchema = z.uuid();

@@ -4,6 +4,7 @@ import { Prisma, type Role, type SessionAudience, type User } from '../generated
 import { AuditService } from '../audit/audit.service.js';
 import { AppException } from '../common/errors/app.exception.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { RealtimeService } from '../realtime/realtime.service.js';
 import { hasActiveAccess } from '../subscriptions/subscription-access.js';
 import type { LoginInput, RegisterInput } from '@coach-connect/shared';
 import { EmailVerificationService } from './email-verification.service.js';
@@ -56,6 +57,7 @@ export class AuthService {
     private readonly tokens: TokenService,
     private readonly audit: AuditService,
     private readonly emailVerification: EmailVerificationService,
+    private readonly realtime: RealtimeService,
     config: ConfigService,
   ) {
     this.sessionTtlMs = config.getOrThrow<number>('SESSION_TTL_DAYS') * 86_400_000;
@@ -102,7 +104,7 @@ export class AuthService {
     if (!ok || !ROLES_FOR[audience].includes(user.role)) throw this.invalidCredentials();
 
     // Only someone who proved the password gets told the account is banned.
-    if (user.isBanned) throw this.banned();
+    if (user.bannedAt) throw this.banned();
 
     if (this.passwords.needsRehash(user.passwordHash)) {
       await this.prisma.user.update({
@@ -133,9 +135,9 @@ export class AuthService {
         throw new AppException(401, 'SESSION_EXPIRED', 'Session expired. Please sign in again.');
       }
 
-      const isCurrent = this.tokens.safeEqual(presentedHash, session.refreshHash);
+      const isCurrent = this.tokens.safeEqual(presentedHash, session.refreshTokenHash);
       const isPrevious =
-        session.prevRefreshHash !== null && this.tokens.safeEqual(presentedHash, session.prevRefreshHash);
+        session.previousRefreshTokenHash !== null && this.tokens.safeEqual(presentedHash, session.previousRefreshTokenHash);
       if (!isCurrent && !isPrevious) throw this.invalidRefresh();
 
       if (isPrevious && Date.now() - session.rotatedAt.getTime() > REFRESH_GRACE_MS) {
@@ -151,21 +153,23 @@ export class AuthService {
             tx,
           );
         });
+        // REAL-TIME: the session is dead, so its live socket (the thief's or the owner's) must not keep receiving messages.
+        this.realtime.disconnectSession(session.id);
         throw new AppException(401, 'REFRESH_REUSED', 'Security check failed. Please sign in again.');
       }
 
       const user = session.user;
       if (user.deletedAt) throw new AppException(401, 'SESSION_REVOKED', 'Session ended. Please sign in again.');
-      if (user.isBanned) throw this.banned();
+      if (user.bannedAt) throw this.banned();
 
       const newSecret = this.tokens.newRefreshSecret();
       const now = new Date();
       // Optimistic lock: only succeeds if nobody rotated since we read the row.
       const updated = await this.prisma.session.updateMany({
-        where: { id: session.id, refreshHash: session.refreshHash, revokedAt: null },
+        where: { id: session.id, refreshTokenHash: session.refreshTokenHash, revokedAt: null },
         data: {
-          prevRefreshHash: session.refreshHash,
-          refreshHash: this.tokens.hashSecret(newSecret),
+          previousRefreshTokenHash: session.refreshTokenHash,
+          refreshTokenHash: this.tokens.hashSecret(newSecret),
           rotatedAt: now,
           lastSeenAt: now,
           expiresAt: new Date(now.getTime() + this.sessionTtlMs),
@@ -195,6 +199,8 @@ export class AuthService {
       where: { id: sessionId, revokedAt: null },
       data: { revokedAt: new Date(), revokedReason: 'LOGOUT' },
     });
+    // REAL-TIME: this device signed out, so close its socket (the user's other devices stay connected).
+    this.realtime.disconnectSession(sessionId);
   }
 
   async me(userId: string) {
@@ -222,8 +228,10 @@ export class AuthService {
     deviceName?: string,
   ): Promise<AuthResult> {
     const secret = this.tokens.newRefreshSecret();
+    let replaced: { id: string }[] = [];
     const session = await this.prisma.$transaction(async (tx) => {
       // One live session per device: signing in again replaces the old one.
+      replaced = await tx.session.findMany({ where: { userId: user.id, deviceId, revokedAt: null }, select: { id: true } });
       await tx.session.updateMany({
         where: { userId: user.id, deviceId, revokedAt: null },
         data: { revokedAt: new Date(), revokedReason: 'REPLACED' },
@@ -234,11 +242,13 @@ export class AuthService {
           audience,
           deviceId,
           deviceName,
-          refreshHash: this.tokens.hashSecret(secret),
+          refreshTokenHash: this.tokens.hashSecret(secret),
           expiresAt: new Date(Date.now() + this.sessionTtlMs),
         },
       });
     });
+    // REAL-TIME: the replaced login is over, so close its socket (after the commit, like every push).
+    replaced.forEach((old) => this.realtime.disconnectSession(old.id));
     return {
       accessToken: await this.tokens.signAccess({
         userId: user.id,

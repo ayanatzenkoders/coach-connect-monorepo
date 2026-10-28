@@ -1,5 +1,6 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import React from 'react';
+import React, { useEffect } from 'react';
+import { AppState } from 'react-native';
 import { COLORS } from '@/src/constants';
 import Chat from '@/src/screens/home/chat/Chat';
 import Main from '@/src/screens/home/main/Main';
@@ -10,6 +11,7 @@ import ResetCode from '@/src/screens/auth/resetCode/ResetCode';
 import SignIn from '@/src/screens/auth/signIn/SignIn';
 import VerifyEmail from '@/src/screens/auth/verifyEmail/VerifyEmail';
 import Offline from '@/src/screens/system/offline/Offline';
+import { connectSocket, disconnectSocket } from '@/src/service/socket/socket';
 import { useAuthStore } from '@/src/store/auth.store';
 import type { RootStackParamList } from '@/src/utils/types';
 
@@ -34,6 +36,20 @@ const SCREEN_OPTIONS = {
 const RootStack: React.FC = () => {
   const status = useAuthStore((s) => s.status);
   const emailVerified = useAuthStore((s) => s.user?.emailVerified ?? false);
+
+  // REAL-TIME: the live connection exists exactly while the user is signed in. Signing out (or a ban that
+  // ends the session) changes `status`, which closes the socket here, so nothing is pushed to a signed-out phone.
+  useEffect(() => {
+    if (status !== 'signedIn') {
+      disconnectSocket();
+      return;
+    }
+    connectSocket();
+    // iOS closes sockets of apps that sit in the background. When the app comes back, reconnect
+    // (connect() does nothing if the socket is still open). Screens then catch up on what they missed.
+    const sub = AppState.addEventListener('change', (state) => state === 'active' && connectSocket());
+    return () => sub.remove();
+  }, [status]);
 
   return (
     <Stack.Navigator screenOptions={SCREEN_OPTIONS}>

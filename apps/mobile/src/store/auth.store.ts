@@ -22,6 +22,12 @@ interface AuthState {
   /** Kept in memory for API calls; the saved copy lives in the Keychain. */
   accessToken: string | null;
   signedOutReason: SignedOutReason;
+  /**
+   * True from the moment the user taps Sign out until the phone has forgotten the login. The server closes the
+   * live socket during that gap; the socket code reads this flag so it does not mistake the user's own
+   * sign-out for "your session was ended".
+   */
+  signingOut: boolean;
 
   /** Run once when the app opens. */
   restore: () => Promise<void>;
@@ -54,7 +60,7 @@ export const useAuthStore = create<AuthState>()((set, get) => {
   /** The saved login is no longer valid: forget it and go to the sign-in screen. */
   async function endSession(reason: SignedOutReason) {
     await clearTokens();
-    set({ status: 'signedOut', user: null, accessToken: null, signedOutReason: reason });
+    set({ status: 'signedOut', user: null, accessToken: null, signedOutReason: reason, signingOut: false });
   }
 
   /** Decide what an API failure during restore means. */
@@ -71,6 +77,7 @@ export const useAuthStore = create<AuthState>()((set, get) => {
     user: null,
     accessToken: null,
     signedOutReason: null,
+    signingOut: false,
 
     async restore() {
       let tokens;
@@ -111,6 +118,7 @@ export const useAuthStore = create<AuthState>()((set, get) => {
 
     async signOut() {
       const { accessToken } = get();
+      set({ signingOut: true });
       // Tell the server (best effort), but always sign out on the phone, even with no internet.
       if (accessToken) await authApi.logout(accessToken).catch(() => undefined);
       await endSession(null);

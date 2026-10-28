@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CustomPersonRow, SearchIcon } from '@/src/components';
-import { COLORS, SPACING, TEXT } from '@/src/constants';
+import { COLORS, MAX_FONT_SCALE, SPACING, TEXT } from '@/src/constants';
+import type { Person } from '@/src/service/api/people.api';
 import { usePeople } from './hook/usePeople';
 
 /** Screen 07: the Coaches / Members tabs, search, coach filters and the list. */
@@ -10,10 +11,23 @@ const People: React.FC = () => {
   const insets = useSafeAreaInsets();
   const p = usePeople();
 
+  // New results for a different search/filter: start at the top. Otherwise the old scroll position can land
+  // half-way down a shorter list, or on empty space, which looks like the list jumping.
+  const listRef = useRef<FlatList>(null);
+  const shownKey = useRef(p.resultsKey);
+  useEffect(() => {
+    if (p.stale || shownKey.current === p.resultsKey) return; // still the old rows, or nothing changed
+    shownKey.current = p.resultsKey;
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [p.stale, p.resultsKey]);
+
+  const { message, call } = p;
+  const renderPerson = useCallback(({ item }: { item: Person }) => <CustomPersonRow person={item} onMessage={message} onCall={call} />, [message, call]);
+
   return (
     <View style={styles.flex}>
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <Text accessibilityRole="header" style={styles.title}>
+        <Text accessibilityRole="header" maxFontSizeMultiplier={MAX_FONT_SCALE.title} style={styles.title}>
           People
         </Text>
 
@@ -26,7 +40,7 @@ const People: React.FC = () => {
               accessibilityState={{ selected: p.kind === k }}
               onPress={() => p.setKind(k)}
               style={[styles.segment, p.kind === k && styles.segmentOn]}>
-              <Text style={styles.segmentText}>
+              <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.segmentText}>
                 {k === 'coaches' ? 'Coaches' : 'Members'}
                 {p.kind === k && !p.loading ? <Text style={styles.segmentCount}> {p.total}</Text> : null}
               </Text>
@@ -48,6 +62,7 @@ const People: React.FC = () => {
             autoCorrect={false}
             returnKeyType="search"
             clearButtonMode="while-editing"
+            maxFontSizeMultiplier={MAX_FONT_SCALE.control}
             style={styles.search}
           />
         </View>
@@ -63,9 +78,10 @@ const People: React.FC = () => {
       </View>
 
       <FlatList
+        ref={listRef}
         data={p.items}
-        keyExtractor={(person) => person.id}
-        renderItem={({ item }) => <CustomPersonRow person={item} onMessage={p.message} onCall={p.call} />}
+        keyExtractor={keyOfPerson}
+        renderItem={renderPerson}
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -107,6 +123,7 @@ const People: React.FC = () => {
 export default People;
 
 const Gap = () => <View style={styles.gap} />;
+const keyOfPerson = (person: Person) => person.id;
 
 function Chip({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
   return (
@@ -116,7 +133,9 @@ function Chip({ label, on, onPress }: { label: string; on: boolean; onPress: () 
       accessibilityState={{ selected: on }}
       onPress={onPress}
       style={[styles.chip, on && styles.chipOn]}>
-      <Text style={[styles.chipText, on && styles.chipTextOn]}>{label}</Text>
+      <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={[styles.chipText, on && styles.chipTextOn]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -130,7 +149,8 @@ const styles = StyleSheet.create({
   segment: { flex: 1, height: 40, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
   segmentOn: { backgroundColor: COLORS.surface, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
   segmentText: { fontSize: 15, fontWeight: '600', color: COLORS.ink },
-  segmentCount: { color: COLORS.inkSecondary, fontWeight: '500' },
+  // tabular-nums: every digit is the same width, so "Coaches 3" -> "Coaches 1" does not nudge the label sideways.
+  segmentCount: { color: COLORS.inkSecondary, fontWeight: '500', fontVariant: ['tabular-nums'] },
   searchIcon: { position: 'absolute', left: 14, top: 0, bottom: 0, justifyContent: 'center', zIndex: 1 },
   search: {
     height: 48,

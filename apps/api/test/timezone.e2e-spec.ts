@@ -17,7 +17,7 @@ describe('Timestamps', () => {
   it('app-written times match the database clock', async () => {
     const row = await prisma.auditLog.create({ data: { action: 'tz.test', createdAt: new Date() } });
     const [{ age }] = await prisma.$queryRaw<{ age: number }[]>`
-      select extract(epoch from now() - created_at)::float8 as age from audit_log where id = ${row.id}::uuid`;
+      select extract(epoch from now() - created_at)::float8 as age from audit_logs where id = ${row.id}::uuid`;
     expect(Math.abs(age)).toBeLessThan(5);
   });
 });

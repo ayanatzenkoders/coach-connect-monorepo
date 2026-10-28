@@ -37,14 +37,23 @@ export class AdminController {
     const user = await this.prisma.user.findFirst({
       where: { id, deletedAt: null },
       select: {
-        id: true, email: true, name: true, role: true, isBanned: true, bannedAt: true, banReason: true,
+        id: true, email: true, name: true, role: true, bannedAt: true,
         createdAt: true,
         subscription: { select: { status: true, expiresAt: true } },
         _count: { select: { sessions: { where: { revokedAt: null } } } },
       },
     });
     if (!user) throw new AppException(404, 'USER_NOT_FOUND', 'User not found.');
-    return user;
+    // The ban reason is not stored on the user: it lives in the audit entry written by the ban.
+    const banEntry = user.bannedAt
+      ? await this.prisma.auditLog.findFirst({
+          where: { action: 'user.ban', targetType: 'user', targetId: id },
+          orderBy: { createdAt: 'desc' },
+          select: { actorId: true, metadata: true },
+        })
+      : null;
+    const reason = (banEntry?.metadata as { reason?: string } | null)?.reason ?? null;
+    return { ...user, isBanned: user.bannedAt !== null, banReason: reason, bannedById: banEntry?.actorId ?? null };
   }
 
   /** WRITE: Admin only. Support gets 403 from RolesGuard even with a valid token. */

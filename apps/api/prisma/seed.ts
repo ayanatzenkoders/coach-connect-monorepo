@@ -54,7 +54,7 @@ async function main() {
     await prisma.subscription.upsert({
       where: { userId: user.id },
       update: {},
-      create: { userId: user.id, status: 'ACTIVE', product: 'yearly', expiresAt: month },
+      create: { userId: user.id, status: 'ACTIVE', plan: 'yearly', expiresAt: month },
     });
   }
   console.log(`Seeded. Every account password: ${DEV_PASSWORD}`);

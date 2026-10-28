@@ -36,8 +36,8 @@ describe('Auth: register, login, token lifecycle', () => {
     expect(user.passwordHash).toMatch(/^\$argon2id\$/);
     const secret = res.body.refreshToken.split('.')[1];
     const session = await prisma.session.findFirstOrThrow({ where: { userId: user.id } });
-    expect(session.refreshHash).not.toContain(secret);
-    expect(session.refreshHash).toHaveLength(64); // sha256 hex
+    expect(session.refreshTokenHash).not.toContain(secret);
+    expect(session.refreshTokenHash).toHaveLength(64); // sha256 hex
   });
 
   it('rejects duplicate email regardless of case, and bad input', async () => {

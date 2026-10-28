@@ -2,7 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import { createApp, resetDb, api, bearer, PASSWORD } from './helpers.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { MailerService } from '../src/mail/mailer.service.js';
-import { MAX_ATTEMPTS } from '../src/auth/one-time-code.service.js';
+import { MAX_ATTEMPTS } from '../src/auth/verification-code.service.js';
 
 describe('Email verification', () => {
   let app: INestApplication;
@@ -30,7 +30,7 @@ describe('Email verification', () => {
   const verify = (token: string, code: string) => api(app).post('/auth/email/verify').set(bearer(token)).send({ code });
   const sendCode = (token: string) => api(app).post('/auth/email/send-code').set(bearer(token));
   const ageActiveCode = (ms: number) =>
-    prisma.$executeRawUnsafe(`UPDATE one_time_codes SET created_at = created_at - interval '${ms} milliseconds' WHERE consumed_at IS NULL`);
+    prisma.$executeRawUnsafe(`UPDATE verification_codes SET created_at = created_at - interval '${ms} milliseconds' WHERE consumed_at IS NULL`);
 
   it('emails a 6-digit code at sign-up, and the user starts unverified', async () => {
     const { token, code } = await signUp();
@@ -49,7 +49,7 @@ describe('Email verification', () => {
 
   it('stores only a hash of the code', async () => {
     const { code } = await signUp();
-    const row = await prisma.oneTimeCode.findFirstOrThrow();
+    const row = await prisma.verificationCode.findFirstOrThrow();
     expect(row.codeHash).toHaveLength(64);
     expect(row.codeHash).not.toContain(code);
   });
@@ -73,7 +73,7 @@ describe('Email verification', () => {
 
   it('rejects an expired code', async () => {
     const { token, code } = await signUp();
-    await prisma.oneTimeCode.updateMany({ data: { expiresAt: new Date(Date.now() - 1000) } });
+    await prisma.verificationCode.updateMany({ data: { expiresAt: new Date(Date.now() - 1000) } });
     expect((await verify(token, code)).body.code).toBe('CODE_EXPIRED');
   });
 
@@ -92,7 +92,7 @@ describe('Email verification', () => {
     await ageActiveCode(61_000);
     expect((await sendCode(token)).status).toBe(200);
     const second = mailer.outbox.at(-1)!.text.match(/\b(\d{6})\b/)![1]!;
-    expect(await prisma.oneTimeCode.count({ where: { consumedAt: null } })).toBe(1);
+    expect(await prisma.verificationCode.count({ where: { consumedAt: null } })).toBe(1);
     if (second !== first) expect((await verify(token, first)).status).toBe(400); // old code is dead
     expect((await verify(token, second)).status).toBe(200);
   });

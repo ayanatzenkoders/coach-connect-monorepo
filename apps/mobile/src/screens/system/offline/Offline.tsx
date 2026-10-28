@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { CustomButton } from '@/src/components';
-import { COLORS, SPACING, TEXT } from '@/src/constants';
+import { COLORS, SPACING, MAX_FONT_SCALE, TEXT } from '@/src/constants';
 import type { RootStackScreenProps } from '@/src/utils/types';
 import { useOffline } from './hook/useOffline';
 
@@ -13,7 +13,7 @@ const Offline: React.FC<Props> = () => {
 
   return (
     <View style={styles.container}>
-      <Text accessibilityRole="header" style={[TEXT.title, styles.title]}>
+      <Text accessibilityRole="header" maxFontSizeMultiplier={MAX_FONT_SCALE.title} style={[TEXT.title, styles.title]}>
         You are offline
       </Text>
       <Text style={[TEXT.body, styles.body]}>We cannot reach Coach Connect right now. Check your connection and try again.</Text>

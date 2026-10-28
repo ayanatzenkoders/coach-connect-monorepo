@@ -20,12 +20,16 @@ enum Role {
   COACH // Approved coach (created/approved by an Admin). Receives calls. Never needs a subscription.
   SUPPORT // Operations staff, web panel only, READ-ONLY (cannot ban, edit or delete).
   ADMIN // Operations lead, web panel only, can do everything incl. ban/unban.
+
+  @@map("user_role")
 }
 
 /// Which client a login session belongs to. Mobile and admin tokens are not interchangeable.
 enum SessionAudience {
   MOBILE // Member/Coach app.
   ADMIN // Web admin panel (Support/Admin).
+
+  @@map("session_audience")
 }
 
 /// Why a session stopped working. Kept for audits ("why was this user logged out?").
@@ -36,6 +40,8 @@ enum SessionRevokeReason {
   BANNED // Admin banned the user.
   ADMIN_REVOKED // Admin signed the device out.
   PASSWORD_CHANGED // User changed/reset password: all other devices are signed out.
+
+  @@map("session_revoke_reason")
 }
 
 /// State of a user's access to paid features. "No row" means never subscribed.
@@ -46,12 +52,24 @@ enum SubscriptionStatus {
   GRACE_PERIOD // Payment failed but the store is still retrying. Has access for now.
   CANCELLED_ACTIVE // User turned off renewal but the paid period has not ended. Has access until expires_at.
   EXPIRED // Period ended or refunded. NO access.
+
+  @@map("subscription_status")
 }
 
-/// What a one-time code is for.
-enum OneTimeCodePurpose {
+/// What a verification code is for.
+enum VerificationCodePurpose {
   EMAIL_VERIFICATION // 6-digit code emailed after sign-up to prove the email is real.
-  PASSWORD_RESET // 6-digit code emailed by "Forgot password" (built in a later step).
+  PASSWORD_RESET // 6-digit code emailed by "Forgot password".
+
+  @@map("verification_code_purpose")
+}
+
+/// Kind of chat. Only DIRECT is built today; GROUP is reserved so groups need no table changes.
+enum ChatType {
+  DIRECT // Exactly two members. Identified by chats.direct_key, so a pair never has two chats.
+  GROUP // Many members, has a title. Not built yet.
+
+  @@map("chat_type")
 }
 
 // ───────────────────────── Models ─────────────────────────
@@ -67,10 +85,8 @@ model User {
   passwordHash    String?   @map("password_hash")
   name            String
   role            Role      @default(MEMBER)
-  isBanned        Boolean   @default(false) @map("is_banned")
+  /// null = not banned; set = banned since then. Who banned and why is kept in audit_logs (action "user.ban").
   bannedAt        DateTime? @map("banned_at") @db.Timestamptz(3)
-  banReason       String?   @map("ban_reason")
-  bannedById      String?   @map("banned_by_id") @db.Uuid
   emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz(3)
   /// Soft delete: set when the user deletes their account (data is anonymised separately).
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(3)
@@ -80,34 +96,33 @@ model User {
   sessions         Session[]
   coachProfile     CoachProfile?
   subscription     Subscription?
-  oneTimeCodes     OneTimeCode[]
-  blocksMade       Block[]        @relation("Blocker")
-  blocksReceived   Block[]        @relation("Blocked")
-  conversationsAsA Conversation[] @relation("ConversationA")
-  conversationsAsB Conversation[] @relation("ConversationB")
-  messagesSent     Message[]
+  verificationCodes VerificationCode[]
+  blocksMade        Block[]            @relation("Blocker")
+  blocksReceived    Block[]            @relation("Blocked")
+  chatMemberships   ChatMember[]
+  messagesSent      Message[]
 
   @@map("users")
 }
 
 model Session {
-  id              String               @id @default(uuid(7)) @db.Uuid
-  userId          String               @map("user_id") @db.Uuid
-  audience        SessionAudience
+  id                       String               @id @default(uuid(7)) @db.Uuid
+  userId                   String               @map("user_id") @db.Uuid
+  audience                 SessionAudience
   /// Stable id the app generates once per install. One live session per device (RAW partial unique).
-  deviceId        String               @map("device_id")
-  deviceName      String?              @map("device_name")
+  deviceId                 String               @map("device_id")
+  deviceName               String?              @map("device_name")
   /// sha256 of the CURRENT refresh secret. The secret itself is never stored.
-  refreshHash     String               @map("refresh_hash")
+  refreshTokenHash         String               @map("refresh_token_hash")
   /// sha256 of the PREVIOUS secret, used to detect reuse (theft) and to allow a short retry grace.
-  prevRefreshHash String?              @map("prev_refresh_hash")
-  rotatedAt       DateTime             @default(now()) @map("rotated_at") @db.Timestamptz(3)
-  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
-  lastSeenAt      DateTime             @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  previousRefreshTokenHash String?              @map("previous_refresh_token_hash")
+  rotatedAt                DateTime             @default(now()) @map("rotated_at") @db.Timestamptz(3)
+  createdAt                DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSeenAt               DateTime             @default(now()) @map("last_seen_at") @db.Timestamptz(3)
   /// Inactivity limit; pushed forward on every refresh.
-  expiresAt       DateTime             @map("expires_at") @db.Timestamptz(3)
-  revokedAt       DateTime?            @map("revoked_at") @db.Timestamptz(3)
-  revokedReason   SessionRevokeReason? @map("revoked_reason")
+  expiresAt                DateTime             @map("expires_at") @db.Timestamptz(3)
+  revokedAt                DateTime?            @map("revoked_at") @db.Timestamptz(3)
+  revokedReason            SessionRevokeReason? @map("revoked_reason")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -120,9 +135,9 @@ model CoachProfile {
   bio         String   @default("")
   specialties String[] @default([])
   /// Admin has approved this coach. Unapproved coaches are invisible in People.
-  approved    Boolean  @default(false)
+  approved    Boolean  @default(false) @map("is_approved")
   /// Coach switched "available" on. Only available coaches show a Call button.
-  available   Boolean  @default(false)
+  available   Boolean  @default(false) @map("is_available")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -138,8 +153,8 @@ model Subscription {
   /// One row per user (unique). No row = never subscribed.
   userId    String             @unique @map("user_id") @db.Uuid
   status    SubscriptionStatus
-  /// "monthly" | "yearly" (store product id).
-  product   String?
+  /// "monthly" | "yearly".
+  plan      String?
   /// End of the current paid/trial period. Access holds until this moment for CANCELLED_ACTIVE.
   expiresAt DateTime?          @map("expires_at") @db.Timestamptz(3)
   createdAt DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -161,27 +176,27 @@ model Block {
 
   @@id([blockerId, blockedId]) // also stops duplicate blocks; serves "who did I block"
   @@index([blockedId]) // reverse lookup: "who blocked me" (needed for the either-direction check)
-  @@map("blocks")
+  @@map("user_blocks")
 }
 
 /// A short code we email to a user (verify email, reset password).
 /// We store only an HMAC of the code, never the code itself.
-model OneTimeCode {
-  id         String             @id @default(uuid(7)) @db.Uuid
-  userId     String             @map("user_id") @db.Uuid
-  purpose    OneTimeCodePurpose
-  codeHash   String             @map("code_hash")
-  expiresAt  DateTime           @map("expires_at") @db.Timestamptz(3)
+model VerificationCode {
+  id             String                  @id @default(uuid(7)) @db.Uuid
+  userId         String                  @map("user_id") @db.Uuid
+  purpose        VerificationCodePurpose
+  codeHash       String                  @map("code_hash")
+  expiresAt      DateTime                @map("expires_at") @db.Timestamptz(3)
   /// Wrong guesses so far. After 5 the code is locked and a new one must be requested.
-  attempts   Int                @default(0)
+  failedAttempts Int                     @default(0) @map("failed_attempts")
   /// Set when the code was used OR replaced by a newer one. null = still active.
-  consumedAt DateTime?          @map("consumed_at") @db.Timestamptz(3)
-  createdAt  DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  consumedAt     DateTime?               @map("consumed_at") @db.Timestamptz(3)
+  createdAt      DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@map("one_time_codes")
+  @@map("verification_codes")
 }
 
 /// Who did what to whom. Written for every admin write (ban, unban, ...) and later every
@@ -198,50 +213,66 @@ model AuditLog {
   @@index([actorId, createdAt]) // "what did this admin do, newest first"
   @@index([targetType, targetId, createdAt]) // "history of this user"
   @@index([createdAt]) // global feed
-  @@map("audit_log")
+  @@map("audit_logs")
 }
 
-/// A one-to-one chat between two users. The pair is stored in a fixed order (userAId < userBId,
-/// CHECK constraint RAW) so "A chats with B" and "B chats with A" are the SAME row, never two.
-model Conversation {
-  id            String    @id @default(uuid(7)) @db.Uuid
-  userAId       String    @map("user_a_id") @db.Uuid
-  userBId       String    @map("user_b_id") @db.Uuid
-  /// Number of the newest message. Each new message takes lastSeq + 1 (see ChatService.send).
-  lastSeq       Int       @default(0) @map("last_seq")
-  /// Newest message number each side has seen. Unread = messages after this that the other person sent.
-  aReadSeq      Int       @default(0) @map("a_read_seq")
-  bReadSeq      Int       @default(0) @map("b_read_seq")
-  /// null until the first message: empty conversations stay out of the Messages list.
-  lastMessageAt DateTime? @map("last_message_at") @db.Timestamptz(3)
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+/// A chat room. Who is in it is stored in chat_members (one row per person), so the same shape
+/// serves a one-to-one chat today and a group chat later.
+model Chat {
+  id    String   @id @default(uuid(7)) @db.Uuid
+  type  ChatType
+  /// DIRECT only: "<smaller user id>:<larger user id>". Unique, so two people can never have two
+  /// chats; "A opens B" and "B opens A" find the same row. null for groups (CHECK, RAW).
+  directKey String? @unique @map("direct_key")
+  /// GROUP only.
+  title String?
+  /// Number of the newest message. Each new message takes this + 1 (see ChatService.send).
+  lastMessageSequenceNumber Int       @default(0) @map("last_message_sequence_number")
+  /// null until the first message: empty chats stay out of the Messages list.
+  lastMessageAt             DateTime? @map("last_message_at") @db.Timestamptz(3)
+  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                 DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  userA    User      @relation("ConversationA", fields: [userAId], references: [id], onDelete: Cascade)
-  userB    User      @relation("ConversationB", fields: [userBId], references: [id], onDelete: Cascade)
+  members  ChatMember[]
   messages Message[]
 
-  @@unique([userAId, userBId]) // one conversation per pair
-  @@index([userAId, lastMessageAt(sort: Desc)]) // "my chats, newest first" (as side A)
-  @@index([userBId, lastMessageAt(sort: Desc)]) // ... and as side B
-  @@map("conversations")
+  @@map("chats")
+}
+
+/// Junction between users and chats: "this user is in this chat". It also stores how far that
+/// user has read, as ONE number. Reading 1000 messages = one UPDATE of this row, never a write per message.
+model ChatMember {
+  chatId String @map("chat_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  /// Highest message number this user has read. A message is "seen" by the user when its
+  /// sequence_number is <= this. Unread = chats.last_message_sequence_number - this.
+  lastReadSequenceNumber Int      @default(0) @map("last_read_sequence_number")
+  joinedAt               DateTime @default(now()) @map("joined_at") @db.Timestamptz(3)
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([chatId, userId])
+  @@index([userId]) // "my chats"
+  @@map("chat_members")
 }
 
 model Message {
-  id             String   @id @default(uuid(7)) @db.Uuid
-  conversationId String   @map("conversation_id") @db.Uuid
-  senderId       String   @map("sender_id") @db.Uuid
+  id              String   @id @default(uuid(7)) @db.Uuid
+  chatId          String   @map("chat_id") @db.Uuid
+  senderId        String   @map("sender_id") @db.Uuid
   /// Made by the app for every message it sends. If the same id arrives twice (a retry after a
   /// bad connection) we return the first message instead of saving a duplicate.
-  clientMsgId    String   @map("client_msg_id")
-  /// 1, 2, 3 ... inside its conversation: the order everyone sees, and the "give me everything after N" cursor.
-  seq            Int
-  body           String
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  clientMessageId String   @map("client_message_id")
+  /// 1, 2, 3 ... inside its chat: the order everyone sees, and the "give me everything after N" cursor.
+  sequenceNumber  Int      @map("sequence_number")
+  body            String
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender       User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  chat   Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender User @relation(fields: [senderId], references: [id], onDelete: Cascade)
 
-  @@unique([senderId, clientMsgId]) // makes sending idempotent
-  @@unique([conversationId, seq]) // also the index behind "messages of this chat, in order"
+  @@unique([senderId, clientMessageId]) // makes sending idempotent
+  @@unique([chatId, sequenceNumber]) // also the index behind "messages of this chat, in order"
   @@map("messages")
 }

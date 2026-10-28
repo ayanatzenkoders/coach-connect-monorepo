@@ -1,12 +1,12 @@
 import React from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { CustomWrapper } from '@/src/components';
-import { COLORS, TEXT } from '@/src/constants';
+import { COLORS, MAX_FONT_SCALE, TEXT } from '@/src/constants';
 
 /** Screen 15 (call history). Not built yet: calls come in the next phase. */
 const Calls: React.FC = () => (
   <CustomWrapper contentStyle={styles.content}>
-    <Text accessibilityRole="header" style={TEXT.title}>
+    <Text accessibilityRole="header" maxFontSizeMultiplier={MAX_FONT_SCALE.title} style={TEXT.title}>
       Calls
     </Text>
     <Text style={styles.description}>Your call history will appear here.</Text>

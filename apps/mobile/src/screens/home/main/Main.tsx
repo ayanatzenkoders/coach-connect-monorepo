@@ -2,7 +2,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MessageIcon, PeopleIcon, PhoneIcon, UserIcon } from '@/src/components';
-import { COLORS } from '@/src/constants';
+import { COLORS, MAX_FONT_SCALE } from '@/src/constants';
 import type { RootStackScreenProps } from '@/src/utils/types';
 import Calls from '../calls/Calls';
 import Messages from '../messages/Messages';
@@ -43,7 +43,9 @@ const Main: React.FC<Props> = () => {
           return (
             <Pressable key={key} accessibilityRole="tab" accessibilityLabel={label} accessibilityState={{ selected: on }} onPress={() => setTab(key)} style={styles.tab}>
               <Icon color={on ? COLORS.primary : COLORS.inkMuted} />
-              <Text style={[styles.label, { color: on ? COLORS.primary : COLORS.inkMuted }]}>{label}</Text>
+              <Text numberOfLines={1} maxFontSizeMultiplier={MAX_FONT_SCALE.chrome} style={[styles.label, { color: on ? COLORS.primary : COLORS.inkMuted }]}>
+                {label}
+              </Text>
             </Pressable>
           );
         })}
