@@ -70,3 +70,25 @@ export function passwordResetEmail(code: string, minutes: number) {
     }),
   };
 }
+
+
+/** Sent when an admin approves a coach: tells them they can now sign in and that members can find them. */
+export function coachApprovedEmail(name: string) {
+  const heading = 'You are approved';
+  const intro = `Hi ${name}, your Coach Connect application has been approved. You can now sign in to the app with the email and password you chose, and members can find you in the People tab.`;
+  const footer = 'Open the Coach Connect app and sign in. If you did not apply to be a coach, you can ignore this email.';
+  const text = `${heading}\n\n${intro}\n\n${footer}\n\nCoach Connect`;
+  const html = `<!doctype html>
+<html lang="en"><body style="margin:0;padding:24px;background:#f3f4f1;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#141a17">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">
+    <table role="presentation" width="480" cellspacing="0" cellpadding="0" style="max-width:480px;background:#ffffff;border:1px solid #dde0d9;border-radius:16px">
+      <tr><td style="padding:28px 28px 8px;font-size:18px;font-weight:700;color:#1d5c4c">Coach Connect</td></tr>
+      <tr><td style="padding:4px 28px 0;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#174a3d">Application approved</td></tr>
+      <tr><td style="padding:8px 28px 0;font-size:22px;font-weight:600">${escape(heading)}</td></tr>
+      <tr><td style="padding:8px 28px 0;font-size:15px;line-height:22px;color:#464e49">${escape(intro)}</td></tr>
+      <tr><td style="padding:16px 28px 28px;font-size:13px;line-height:20px;color:#646b66">${escape(footer)}</td></tr>
+    </table>
+  </td></tr></table>
+</body></html>`;
+  return { subject: 'Your Coach Connect application is approved', text, html };
+}

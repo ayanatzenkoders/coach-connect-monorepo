@@ -14,6 +14,7 @@ async function setup(email?: string) {
 async function fillValid(tree: Awaited<ReturnType<typeof render>>, password = 'Longenough1') {
   await typeInto(tree, 'Full name', '  Sara Malik ');
   await typeInto(tree, 'Email', ' sara@coachconnect.dev ');
+  await typeInto(tree, 'Date of birth', '19900517'); // the dashes are added while typing
   await typeInto(tree, 'Password', password);
 }
 
@@ -25,10 +26,10 @@ describe('Register screen', () => {
     useAuthStore.setState({ register });
   });
 
-  it('shows the title, three fields and the four password rules', async () => {
+  it('shows the title, four fields and the four password rules', async () => {
     const tree = await setup();
     expect(allText(tree)).toContain('Create your account');
-    for (const label of ['Full name', 'Email', 'Password', 'Create account']) expect(byLabel(tree, label)).toBeTruthy();
+    for (const label of ['Full name', 'Email', 'Date of birth', 'Password', 'Create account']) expect(byLabel(tree, label)).toBeTruthy();
     expect(allText(tree)).toEqual(expect.arrayContaining(['At least 8 characters', 'One lowercase letter', 'One uppercase letter', 'One number']));
   });
 
@@ -41,7 +42,7 @@ describe('Register screen', () => {
     const tree = await setup();
     await press(tree, 'Create account');
     expect(register).not.toHaveBeenCalled();
-    expect(allText(tree)).toEqual(expect.arrayContaining(['Enter your name.', 'Enter a valid email address.']));
+    expect(allText(tree)).toEqual(expect.arrayContaining(['Enter your name.', 'Enter a valid email address.', 'Enter a real date, like 1990-05-17.']));
   });
 
   it.each([
@@ -61,7 +62,7 @@ describe('Register screen', () => {
     const tree = await setup();
     await fillValid(tree);
     await press(tree, 'Create account');
-    expect(register).toHaveBeenCalledWith('Sara Malik', 'sara@coachconnect.dev', 'Longenough1');
+    expect(register).toHaveBeenCalledWith('Sara Malik', 'sara@coachconnect.dev', 'Longenough1', '1990-05-17');
   });
 
   it('shows "email already exists" (from the server) as a toast', async () => {
@@ -84,5 +85,24 @@ describe('Register screen', () => {
     const tree = await setup();
     await press(tree, 'Back to sign in');
     expect(navigationMock.goBack).toHaveBeenCalled();
+  });
+
+  it('the date box adds the dashes while typing and refuses an impossible date', async () => {
+    const tree = await setup();
+    await typeInto(tree, 'Date of birth', '1990');
+    expect(byLabel(tree, 'Date of birth').props.value).toBe('1990');
+    await typeInto(tree, 'Date of birth', '19900517');
+    expect(byLabel(tree, 'Date of birth').props.value).toBe('1990-05-17');
+    await fillValid(tree);
+    await typeInto(tree, 'Date of birth', '20200231'); // 31 February
+    await press(tree, 'Create account');
+    expect(register).not.toHaveBeenCalled();
+    expect(allText(tree)).toContain('Enter a real date, like 1990-05-17.');
+  });
+
+  it('"Are you a coach? Apply here" opens the coach application', async () => {
+    const tree = await setup();
+    await press(tree, 'Apply as a coach');
+    expect(navigationMock.dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'REPLACE', payload: expect.objectContaining({ name: 'RegisterCoach' }) }));
   });
 });

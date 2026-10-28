@@ -75,18 +75,16 @@ describe('chat', () => {
       expect(chat.members.map((m) => m.userId).sort((x, y) => x.localeCompare(y))).toEqual([ann.id, ben.id].sort((x, y) => x.localeCompare(y)));
     });
 
-    it('refuses yourself, strangers, banned, staff, pending coaches and blocked people', async () => {
+    it('refuses yourself, strangers, banned, staff and pending coaches', async () => {
       const ann = await seedUser(prisma, 'ann@x.com', 'MEMBER', 'Ann');
       const banned = await seedUser(prisma, 'banned@x.com', 'MEMBER');
       const staff = await seedUser(prisma, 'staff@x.com', 'ADMIN');
       const pending = await seedUser(prisma, 'pending@x.com', 'COACH');
       await prisma.coachProfile.create({ data: { userId: pending.id, approved: false } });
-      const blocked = await seedUser(prisma, 'blocked@x.com', 'MEMBER');
       await prisma.user.update({ where: { id: banned.id }, data: { bannedAt: new Date() } });
-      await prisma.block.create({ data: { blockerId: blocked.id, blockedId: ann.id } }); // they blocked me
       const open = (userId: string) => post('ann@x.com', '/chats', { userId });
       expect((await open(ann.id)).body.code).toBe('CANNOT_CHAT_WITH_SELF');
-      for (const id of ['0194f3a0-0000-7000-8000-000000000000', banned.id, staff.id, pending.id, blocked.id]) {
+      for (const id of ['0194f3a0-0000-7000-8000-000000000000', banned.id, staff.id, pending.id]) {
         const res = await open(id);
         expect([res.status, res.body.code]).toEqual([404, 'USER_NOT_FOUND']);
       }
@@ -228,23 +226,42 @@ describe('chat', () => {
     });
   });
 
-  describe('blocks and bans', () => {
-    it('stops sending after a block (either direction), and hides the chat from the list', async () => {
-      const { ann, ben, id } = await pair();
-      await say('ann@x.com', id, 'before the block');
-      await prisma.block.create({ data: { blockerId: ben.id, blockedId: ann.id } });
-      for (const who of ['ann@x.com', 'ben@x.com']) {
-        const res = await say(who, id, 'after the block');
-        expect([res.status, res.body.code]).toEqual([403, 'CANNOT_MESSAGE']);
-        expect((await get(who, '/chats')).body.items).toEqual([]);
-      }
+  describe('what a ban means for chats', () => {
+    it('the chat stays in the list and its history stays readable, but nobody can write to the banned person', async () => {
+      const { ben, id } = await pair();
+      await say('ann@x.com', id, 'before the ban');
+      await prisma.user.update({ where: { id: ben.id }, data: { bannedAt: new Date() } });
+
+      // still listed, with the banned person's name, marked as read-only
+      const list = (await get('ann@x.com', '/chats')).body.items;
+      expect(list).toHaveLength(1);
+      expect(list[0]).toMatchObject({ id, title: 'Ben', canSend: false, lastMessage: { body: 'before the ban' } });
+      // history is still there
+      const page = (await get('ann@x.com', `/chats/${id}/messages`)).body;
+      expect(page.items.map((m: { body: string }) => m.body)).toEqual(['before the ban']);
+      expect(page.canSend).toBe(false);
+      // but no new messages
+      const blocked = await say('ann@x.com', id, 'still there?');
+      expect([blocked.status, blocked.body.code]).toEqual([403, 'CANNOT_MESSAGE']);
+      expect(await prisma.message.count()).toBe(1);
+      // and a new chat cannot be started with them
+      expect((await post('ann@x.com', '/chats', { userId: ben.id })).status).toBe(404);
     });
 
-    it('stops sending to a banned person and hides the chat', async () => {
+    it('unbanning opens the chat again', async () => {
       const { ben, id } = await pair();
       await say('ann@x.com', id, 'hi');
       await prisma.user.update({ where: { id: ben.id }, data: { bannedAt: new Date() } });
-      expect((await say('ann@x.com', id, 'still there?')).status).toBe(403);
+      expect((await say('ann@x.com', id, 'no')).status).toBe(403);
+      await prisma.user.update({ where: { id: ben.id }, data: { bannedAt: null } });
+      expect((await get('ann@x.com', '/chats')).body.items[0].canSend).toBe(true);
+      expect((await say('ann@x.com', id, 'welcome back')).status).toBe(200);
+    });
+
+    it('a chat with a deleted account is left out of the list', async () => {
+      const { ben, id } = await pair();
+      await say('ann@x.com', id, 'hi');
+      await prisma.user.update({ where: { id: ben.id }, data: { deletedAt: new Date() } });
       expect((await get('ann@x.com', '/chats')).body.items).toEqual([]);
     });
 

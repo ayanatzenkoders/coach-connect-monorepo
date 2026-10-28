@@ -42,7 +42,6 @@ const People: React.FC = () => {
               style={[styles.segment, p.kind === k && styles.segmentOn]}>
               <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.segmentText}>
                 {k === 'coaches' ? 'Coaches' : 'Members'}
-                {p.kind === k && !p.loading ? <Text style={styles.segmentCount}> {p.total}</Text> : null}
               </Text>
             </Pressable>
           ))}
@@ -149,8 +148,6 @@ const styles = StyleSheet.create({
   segment: { flex: 1, height: 40, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
   segmentOn: { backgroundColor: COLORS.surface, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
   segmentText: { fontSize: 15, fontWeight: '600', color: COLORS.ink },
-  // tabular-nums: every digit is the same width, so "Coaches 3" -> "Coaches 1" does not nudge the label sideways.
-  segmentCount: { color: COLORS.inkSecondary, fontWeight: '500', fontVariant: ['tabular-nums'] },
   searchIcon: { position: 'absolute', left: 14, top: 0, bottom: 0, justifyContent: 'center', zIndex: 1 },
   search: {
     height: 48,

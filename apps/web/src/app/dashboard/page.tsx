@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { AdminShell } from '@/components/AdminShell';
-import { ApiError, apiRequest } from '@/lib/api';
-import { useSession } from '@/lib/session';
+import { ApiError } from '@/lib/api';
+import { authedRequest, useSession } from '@/lib/session';
 import styles from './dashboard.module.css';
 
 interface Me {
@@ -22,14 +22,14 @@ export default function DashboardPage() {
   const session = useSession();
   const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const token = session?.accessToken;
+  const signedIn = session !== null; // not the token itself: it is renewed every 15 minutes and must not reload the page
 
   useEffect(() => {
-    if (!token) return;
-    apiRequest<Me>('/auth/me', { accessToken: token })
+    if (!signedIn) return;
+    authedRequest<Me>('/auth/me')
       .then(setMe)
       .catch((e) => setError(e instanceof ApiError ? `${e.status} ${e.code}` : 'failed'));
-  }, [token]);
+  }, [signedIn]);
 
   return (
     <AdminShell title="Dashboard" subtitle="Charts and numbers arrive in a later step.">

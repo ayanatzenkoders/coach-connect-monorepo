@@ -2,6 +2,7 @@ import { FlatList } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import People from '@/src/screens/home/people/People';
 import { chatApi, ChatSummary } from '@/src/service/api/chat.api';
+import { chatSummary } from '../../test-utils/chat';
 import { peopleApi, PeoplePage } from '@/src/service/api/people.api';
 import { ApiError } from '@/src/service/setup/apiClient';
 import { useAuthStore } from '@/src/store/auth.store';
@@ -46,6 +47,14 @@ describe('People screen', () => {
     expect(t).toContain('2 coaches');
   });
 
+  it('the Coaches / Members tabs show only their names: no changing number inside them', async () => {
+    const tree = await setup();
+    const labels = tree.root.findAll((n) => n.props.accessibilityRole === 'tab').map((n) => n.props.accessibilityLabel);
+    expect([...new Set(labels)]).toEqual(['Coaches', 'Members']);
+    expect(allText(tree)).toEqual(expect.arrayContaining(['Coaches', 'Members']));
+    expect(allText(tree).filter((t) => /^(Coaches|Members)\s*\d/.test(t.trim()))).toEqual([]);
+  });
+
   it('builds the filter chips from the specialties the server sent', async () => {
     const tree = await setup();
     for (const label of ['Filter: Available now', 'Filter: Burnout', 'Filter: Career transitions']) expect(has(tree, label)).toBe(true);
@@ -60,7 +69,7 @@ describe('People screen', () => {
 
   it('the chat button opens (or creates) the chat and shows the Chat screen', async () => {
     const tree = await setup();
-    const chat: ChatSummary = { id: 'conv-1', other: { id: 'c2', name: 'Lena Fischer', role: 'COACH' }, lastMessageSequenceNumber: 0, unreadCount: 0, lastMessageAt: null, lastMessage: null };
+    const chat: ChatSummary = chatSummary({ id: 'conv-1', title: 'Lena Fischer', other: { id: 'c2', name: 'Lena Fischer', role: 'COACH' } });
     open.mockResolvedValue(chat);
     await press(tree, 'Message Lena Fischer');
     expect(open).toHaveBeenCalledWith('token', 'c2');

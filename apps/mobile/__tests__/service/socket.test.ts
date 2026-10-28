@@ -3,8 +3,12 @@ jest.unmock('@/src/service/socket/socket');
 
 type Handler = (...args: unknown[]) => void;
 const handlers = new Map<string, Handler>();
+// Socket.IO's automatic retries are announced on the Manager (`socket.io`), not on the socket itself.
+const managerHandlers = new Map<string, Handler>();
 const fake = {
+  connected: false,
   on: jest.fn((event: string, handler: Handler) => handlers.set(event, handler)),
+  io: { on: jest.fn((event: string, handler: Handler) => managerHandlers.set(event, handler)) },
   connect: jest.fn(),
   disconnect: jest.fn(),
 };
@@ -22,6 +26,8 @@ let refreshSession: jest.Mock;
 beforeEach(() => {
   jest.resetModules(); // a fresh module, so the socket is created again
   handlers.clear();
+  managerHandlers.clear();
+  fake.connected = false;
   fake.on.mockClear();
   fake.connect.mockClear();
   expireSession = jest.fn().mockResolvedValue(undefined);
@@ -121,5 +127,54 @@ describe('socket connection', () => {
     fake.connect.mockClear();
     await emit('disconnect', 'transport close'); // a normal network drop: Socket.IO reconnects by itself
     expect(fake.connect).not.toHaveBeenCalled();
+  });
+
+  describe('connection status (drives the "connection lost" banner)', () => {
+    const status = (m: ReturnType<typeof loadModules>) => m.connection.getState().status;
+    const loadModules = () => {
+      const socket = load();
+      const { useConnectionStore } = require('@/src/store/connection.store') as typeof import('@/src/store/connection.store');
+      return { ...socket, connection: useConnectionStore };
+    };
+
+    it('starts idle, becomes "connecting" when the app opens the socket, and "connected" when it is up', async () => {
+      const m = loadModules();
+      expect(status(m)).toBe('idle');
+      m.connectSocket();
+      expect(status(m)).toBe('connecting');
+      await emit('connect');
+      expect(status(m)).toBe('connected');
+    });
+
+    it('a lost connection is "disconnected"; each automatic retry is "connecting" again', async () => {
+      const m = loadModules();
+      m.getSocket();
+      await emit('connect');
+      await emit('disconnect', 'transport close');
+      expect(status(m)).toBe('disconnected');
+      managerHandlers.get('reconnect_attempt')!();
+      expect(status(m)).toBe('connecting');
+      await emit('connect_error', new Error('websocket error'));
+      expect(status(m)).toBe('disconnected');
+    });
+
+    it('closing it ourselves (sign out) is "idle", not a lost connection', async () => {
+      const m = loadModules();
+      m.getSocket();
+      await emit('connect');
+      m.disconnectSocket();
+      expect(status(m)).toBe('idle');
+      await emit('disconnect', 'io client disconnect'); // the event that follows our own disconnect()
+      expect(status(m)).toBe('idle');
+    });
+
+    it('connectSocket does not show "connecting" when it is already connected', () => {
+      const m = loadModules();
+      m.getSocket();
+      fake.connected = true;
+      m.connection.getState().set('connected');
+      m.connectSocket();
+      expect(status(m)).toBe('connected');
+    });
   });
 });

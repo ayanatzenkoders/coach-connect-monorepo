@@ -1,7 +1,7 @@
 import React from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CustomAvatar } from '@/src/components';
+import { CustomAvatar, PlusIcon } from '@/src/components';
 import { COLORS, MAX_FONT_SCALE, TEXT } from '@/src/constants';
 import type { ChatSummary } from '@/src/service/api/chat.api';
 import { listTime } from '@/src/utils/helpers';
@@ -14,9 +14,14 @@ const Messages: React.FC = () => {
 
   return (
     <View style={styles.flex}>
-      <Text accessibilityRole="header" maxFontSizeMultiplier={MAX_FONT_SCALE.title} style={[TEXT.title, styles.title, { paddingTop: insets.top + 12 }]}>
-        Messages
-      </Text>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+        <Text accessibilityRole="header" maxFontSizeMultiplier={MAX_FONT_SCALE.title} style={TEXT.title}>
+          Messages
+        </Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="New group" onPress={m.newGroup} hitSlop={6} style={styles.newGroup}>
+          <PlusIcon color={COLORS.onPrimary} size={22} />
+        </Pressable>
+      </View>
       <FlatList
         data={m.items}
         keyExtractor={(c) => c.id}
@@ -30,7 +35,7 @@ const Messages: React.FC = () => {
           ) : (
             <View style={styles.empty}>
               <Text style={styles.emptyTitle}>No messages yet</Text>
-              <Text style={styles.emptyText}>Find a coach or a member in People and tap the chat button to start.</Text>
+              <Text style={styles.emptyText}>Find a coach or a member in People and tap the chat button to start, or create a group with the + button.</Text>
             </View>
           )
         }
@@ -43,14 +48,18 @@ export default Messages;
 
 function Row({ chat: c, meId, onPress }: { chat: ChatSummary; meId: string; onPress: () => void }) {
   const unread = c.unreadCount > 0;
-  const preview = c.lastMessage ? `${c.lastMessage.senderId === meId ? 'You: ' : ''}${c.lastMessage.body}` : '';
+  const isGroup = c.type === 'GROUP';
+  const last = c.lastMessage;
+  // "You: hi" for my message; in a group the other person's first name comes first: "Amara: see you".
+  const prefix = !last ? '' : last.senderId === meId ? 'You: ' : isGroup ? `${last.senderName.split(' ')[0]}: ` : '';
+  const preview = last ? `${prefix}${last.body}` : isGroup ? 'No messages yet' : '';
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`Open chat with ${c.other.name}`} onPress={onPress} style={styles.row}>
-      <CustomAvatar id={c.other.id} name={c.other.name} size={52} />
+    <Pressable accessibilityRole="button" accessibilityLabel={isGroup ? `Open group ${c.title}` : `Open chat with ${c.title}`} onPress={onPress} style={styles.row}>
+      <CustomAvatar id={c.other?.id ?? c.id} name={c.title} size={52} />
       <View style={styles.rowText}>
         <View style={styles.line}>
           <Text style={[styles.name, unread && styles.bold]} numberOfLines={1}>
-            {c.other.name}
+            {c.title}
           </Text>
           {c.lastMessageAt && <Text style={[styles.time, unread && styles.timeUnread]}>{listTime(c.lastMessageAt)}</Text>}
         </View>
@@ -71,7 +80,8 @@ function Row({ chat: c, meId, onPress }: { chat: ChatSummary; meId: string; onPr
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: COLORS.background },
-  title: { paddingHorizontal: 20, paddingBottom: 12 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 12 },
+  newGroup: { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center' },
   list: { paddingBottom: 12, flexGrow: 1 },
   loader: { marginTop: 40 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingVertical: 14, backgroundColor: COLORS.surface, borderBottomWidth: 1, borderBottomColor: COLORS.divider },

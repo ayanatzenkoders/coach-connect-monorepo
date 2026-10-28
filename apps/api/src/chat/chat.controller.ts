@@ -1,14 +1,16 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
+  AddGroupMembersInputSchema,
   API_ROUTES,
+  CreateGroupInputSchema,
   IdSchema,
   MarkReadInputSchema,
   MessagesQuerySchema,
   OpenChatInputSchema,
   SendMessageInputSchema,
 } from '@coach-connect/shared';
-import type { MarkReadInput, MessagesQueryParsed, OpenChatInput, SendMessageInput } from '@coach-connect/shared';
+import type { AddGroupMembersInput, CreateGroupInput, MarkReadInput, MessagesQueryParsed, OpenChatInput, SendMessageInput } from '@coach-connect/shared';
 import type { AuthUser } from '../common/auth-user.js';
 import { CurrentUser } from '../common/decorators/index.js';
 import { ChatService } from './chat.service.js';
@@ -29,6 +31,33 @@ export class ChatController {
   @HttpCode(200)
   open(@CurrentUser() user: AuthUser, @Body({ schema: OpenChatInputSchema }) dto: OpenChatInput) {
     return this.chat.open(user.id, dto.userId);
+  }
+
+  /** Create a group chat (3 to 6 people, at most one coach). The caller is added automatically. */
+  @Post(API_ROUTES.chat.groups)
+  @HttpCode(200)
+  createGroup(@CurrentUser() user: AuthUser, @Body({ schema: CreateGroupInputSchema }) dto: CreateGroupInput) {
+    return this.chat.createGroup(user.id, dto);
+  }
+
+  /** One chat with its people (group info). */
+  @Get(API_ROUTES.chat.detail)
+  detail(@CurrentUser() user: AuthUser, @Param('id', { schema: IdSchema }) id: string) {
+    return this.chat.detail(user.id, id);
+  }
+
+  /** Add people to a group (the creator only). */
+  @Post(API_ROUTES.chat.members)
+  @HttpCode(200)
+  addMembers(@CurrentUser() user: AuthUser, @Param('id', { schema: IdSchema }) id: string, @Body({ schema: AddGroupMembersInputSchema }) dto: AddGroupMembersInput) {
+    return this.chat.addMembers(user.id, id, dto);
+  }
+
+  /** Delete a group and all its messages for everybody (the creator only). */
+  @Delete(API_ROUTES.chat.detail)
+  @HttpCode(200)
+  deleteGroup(@CurrentUser() user: AuthUser, @Param('id', { schema: IdSchema }) id: string) {
+    return this.chat.deleteGroup(user.id, id);
   }
 
   @Get(API_ROUTES.chat.messages)

@@ -1,16 +1,17 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { logout, useSession } from '@/lib/session';
 import { DashboardIcon, FlagIcon, ListIcon, PhoneIcon, SignOutIcon, UsersIcon } from './NavIcons';
 import { Logo } from './Logo';
 import styles from './AdminShell.module.css';
 
-/** Pages from the design. Only the dashboard exists so far; the others are shown but not clickable yet. */
+/** Pages from the design. The ones without an `href` are shown but not clickable yet. */
 const NAV = [
   { label: 'Dashboard', icon: DashboardIcon, href: '/dashboard' },
-  { label: 'Users & coaches', icon: UsersIcon },
+  { label: 'Users & coaches', icon: UsersIcon, href: '/users' },
   { label: 'Call logs', icon: PhoneIcon },
   { label: 'Moderation', icon: FlagIcon },
   { label: 'Audit log', icon: ListIcon },
@@ -28,6 +29,7 @@ const initials = (name: string) =>
 export function AdminShell({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   const router = useRouter();
   const session = useSession();
+  const pathname = usePathname();
 
   useEffect(() => {
     if (!session) router.replace('/login');
@@ -49,10 +51,11 @@ export function AdminShell({ title, subtitle, children }: { title: string; subti
         <nav aria-label="Admin" className={styles.nav}>
           {NAV.map(({ label, icon: Icon, href }) =>
             href ? (
-              <a key={label} href={href} aria-current="page" className={`${styles.item} ${styles.active}`}>
+              // Link, not <a>: it switches pages without reloading, which would sign you out (the login lives in memory for now).
+              <Link key={label} href={href} aria-current={pathname.startsWith(href) ? 'page' : undefined} className={`${styles.item} ${pathname.startsWith(href) ? styles.active : ''}`}>
                 <Icon />
                 {label}
-              </a>
+              </Link>
             ) : (
               <span key={label} aria-disabled="true" title="Coming soon" className={`${styles.item} ${styles.disabled}`}>
                 <Icon />

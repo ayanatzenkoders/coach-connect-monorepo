@@ -32,7 +32,8 @@ interface AuthState {
   /** Run once when the app opens. */
   restore: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string) => Promise<void>;
+  register: (name: string, email: string, password: string, dateOfBirth: string) => Promise<void>;
+  registerCoach: (application: CoachApplication) => Promise<void>;
   signOut: () => Promise<void>;
   /**
    * Trade the saved refresh token for a new pair and return the new access token.
@@ -40,10 +41,23 @@ interface AuthState {
    * (a second refresh with the same old token would look like token theft to the server).
    */
   refreshSession: () => Promise<string>;
+  /** Ask the server who I am now (a coach waiting for approval uses this to find out they were approved). */
+  refreshUser: () => Promise<void>;
   /** The server confirmed the email code: let the user into the app. */
   markEmailVerified: () => void;
   /** The server says this login is over (revoked / banned): forget it and show Sign in. */
   expireSession: (reason: SignedOutReason) => Promise<void>;
+}
+
+/** What a coach fills in to apply (the device fields are added by the store). */
+export interface CoachApplication {
+  name: string;
+  email: string;
+  password: string;
+  dateOfBirth: string;
+  phone: string;
+  bio: string;
+  specialties: string[];
 }
 
 let refreshInFlight: Promise<string> | null = null;
@@ -111,9 +125,15 @@ export const useAuthStore = create<AuthState>()((set, get) => {
       await accept(await authApi.login({ email, password, deviceId, deviceName: deviceName() }));
     },
 
-    async register(name, email, password) {
+    async register(name, email, password, dateOfBirth) {
       const deviceId = await getOrCreateDeviceId();
-      await accept(await authApi.register({ name, email, password, deviceId, deviceName: deviceName() }));
+      await accept(await authApi.register({ name, email, password, dateOfBirth, deviceId, deviceName: deviceName() }));
+    },
+
+    async registerCoach(application) {
+      const deviceId = await getOrCreateDeviceId();
+      // The account starts unapproved: the server answers with `pendingApproval`, so after the email code the app shows "waiting".
+      await accept(await authApi.registerCoach({ ...application, deviceId, deviceName: deviceName() }));
     },
 
     async signOut() {
@@ -135,6 +155,17 @@ export const useAuthStore = create<AuthState>()((set, get) => {
         refreshInFlight = null;
       });
       return refreshInFlight;
+    },
+
+    async refreshUser() {
+      const token = get().accessToken;
+      if (!token) return;
+      // (withAuth would import this store back, so the one retry after an expired token is written out here.)
+      const me = await authApi.me(token).catch(async (e: unknown) => {
+        if (!(e instanceof ApiError) || e.code !== 'INVALID_TOKEN') throw e;
+        return authApi.me(await get().refreshSession());
+      });
+      set({ user: me });
     },
 
     markEmailVerified: () => {

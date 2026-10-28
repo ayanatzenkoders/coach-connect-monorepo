@@ -18,12 +18,13 @@ export function CustomButton({ title, onPress, variant = 'primary', loading = fa
         styles.base,
         variant === 'primary' && { backgroundColor: pressed ? COLORS.primaryPressed : COLORS.primary },
         variant === 'outline' && { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border },
+        variant === 'danger' && { backgroundColor: pressed ? COLORS.errorTint : COLORS.surface, borderWidth: 1, borderColor: COLORS.error },
         inactive && styles.inactive,
       ]}>
       {loading ? (
-        <ActivityIndicator color={variant === 'outline' ? COLORS.ink : COLORS.onPrimary} />
+        <ActivityIndicator color={variant === 'outline' ? COLORS.ink : variant === 'danger' ? COLORS.error : COLORS.onPrimary} />
       ) : (
-        <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={[styles.label, variant === 'outline' && { color: COLORS.ink }]}>
+        <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={[styles.label, variant === 'outline' && { color: COLORS.ink }, variant === 'danger' && { color: COLORS.error }]}>
           {title}
         </Text>
       )}

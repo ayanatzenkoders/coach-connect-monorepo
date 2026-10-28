@@ -15,7 +15,7 @@ describe('Auth: register, login, token lifecycle', () => {
   beforeEach(() => resetDb(prisma));
 
   const register = (email = 'ana@example.com', deviceId = 'device-aaaaaaaa') =>
-    api(app).post('/auth/register').send({ email, password: PASSWORD, name: 'Ana', deviceId });
+    api(app).post('/auth/register').send({ email, password: PASSWORD, name: 'Ana', dateOfBirth: '1990-05-17', deviceId });
 
   it('registers a MEMBER, returns tokens, and /auth/me works', async () => {
     const res = await register('Ana@Example.com'); // mixed case on purpose
@@ -45,7 +45,7 @@ describe('Auth: register, login, token lifecycle', () => {
     expect((await register('ANA@example.com')).status).toBe(409);
     const bad = await api(app).post('/auth/register').send({ email: 'nope', password: '123', name: '', deviceId: 'x' });
     expect(bad.status).toBe(400);
-    const extra = await api(app).post('/auth/register').send({ email: 'b@example.com', password: PASSWORD, name: 'B', deviceId: 'device-bbbbbbbb', role: 'ADMIN' });
+    const extra = await api(app).post('/auth/register').send({ email: 'b@example.com', password: PASSWORD, name: 'B', dateOfBirth: '1990-05-17', deviceId: 'device-bbbbbbbb', role: 'ADMIN' });
     expect(extra.status).toBe(400); // cannot sneak in a role field
   });
 
@@ -151,7 +151,7 @@ describe('Password rule at sign-up', () => {
   beforeEach(() => resetDb(prisma));
 
   const register = (password: string, email = 'rule@example.com') =>
-    api(app).post('/auth/register').send({ email, password, name: 'Rule', deviceId: 'device-aaaaaaaa' });
+    api(app).post('/auth/register').send({ email, password, name: 'Rule', dateOfBirth: '1990-05-17', deviceId: 'device-aaaaaaaa' });
 
   it.each([
     ['no uppercase letter', 'alllowercase1'],
@@ -181,11 +181,11 @@ describe('Validation errors', () => {
   it('names the bad fields, each with its messages', async () => {
     const res = await api(app).post('/auth/register').send({ email: 'not-an-email', password: 'x', name: '', deviceId: 'short' });
     expect(res.status).toBe(400);
-    expect(Object.keys(res.body.errors).sort()).toEqual(['deviceId', 'email', 'name', 'password']);
+    expect(Object.keys(res.body.errors).sort()).toEqual(['dateOfBirth', 'deviceId', 'email', 'name', 'password']);
   });
 
   it('rejects fields it does not know about, such as a self-assigned role', async () => {
-    const res = await api(app).post('/auth/register').send({ email: 'a@b.com', password: 'Password123!', name: 'A', deviceId: 'device-aaaaaaaa', role: 'ADMIN' });
+    const res = await api(app).post('/auth/register').send({ email: 'a@b.com', password: 'Password123!', name: 'A', dateOfBirth: '1990-05-17', deviceId: 'device-aaaaaaaa', role: 'ADMIN' });
     expect(res.status).toBe(400);
   });
 });

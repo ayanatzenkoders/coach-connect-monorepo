@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 
 // Plain values shared with the API (no zod in the bundle).
-export { CODE_LENGTH, MESSAGE_MAX_LENGTH, PASSWORD_MAX, PASSWORD_MIN } from '@coach-connect/shared/constants';
+export { CODE_LENGTH, COACH_BIO_MAX, COACH_BIO_MIN, COACH_MAX_SPECIALTIES, COACH_SPECIALTIES, GROUP_DESCRIPTION_MAX, GROUP_MAX_MEMBERS, GROUP_MIN_MEMBERS, GROUP_TITLE_MAX, MESSAGE_MAX_LENGTH, PASSWORD_MAX, PASSWORD_MIN } from '@coach-connect/shared/constants';
 
 /**
  * Where the backend lives while developing.

@@ -132,7 +132,7 @@ describe('Forgot password: email -> verify code -> new password', () => {
     });
 
     it('an email-verification code cannot be used here (purposes are separate)', async () => {
-      await api(app).post('/auth/register').send({ email: 'ana@example.com', password: PASSWORD, name: 'Ana', deviceId: 'device-aaaaaaaa' });
+      await api(app).post('/auth/register').send({ email: 'ana@example.com', password: PASSWORD, name: 'Ana', dateOfBirth: '1990-05-17', deviceId: 'device-aaaaaaaa' });
       const res = await verifyCode('ana@example.com', lastCode('ana@example.com'));
       expect(res.status).toBe(400);
     });

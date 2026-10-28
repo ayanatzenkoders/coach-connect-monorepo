@@ -1,4 +1,4 @@
-import { clockTime, listTime } from '@/src/utils/helpers/time';
+import { clockTime, listTime, longDate } from '@/src/utils/helpers/time';
 
 // Local times on purpose: the helpers format in the phone's own time zone.
 const at = (y: number, m: number, d: number, h = 12, min = 0) => new Date(y, m - 1, d, h, min);
@@ -16,5 +16,17 @@ describe('time helpers', () => {
     expect(listTime(at(2026, 10, 25, 23, 59).toISOString(), NOW)).toBe('Yesterday');
     expect(listTime(at(2026, 10, 22).toISOString(), NOW)).toBe('Thu');
     expect(listTime(at(2026, 10, 14).toISOString(), NOW)).toBe('Oct 14');
+  });
+
+  it('writes a full date for the Profile: "Nov 27, 2026"', () => {
+    expect(longDate(at(2026, 11, 27, 12).toISOString())).toBe('Nov 27, 2026');
+    expect(longDate(at(2027, 1, 3, 12).toISOString())).toBe('Jan 3, 2027');
+  });
+
+  it('gives an empty text, never "Invalid Date", for a missing or broken date', () => {
+    expect(longDate(null)).toBe('');
+    expect(longDate(undefined)).toBe('');
+    expect(longDate('')).toBe('');
+    expect(longDate('not a date')).toBe('');
   });
 });

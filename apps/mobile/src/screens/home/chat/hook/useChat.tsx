@@ -1,19 +1,26 @@
 import { useNavigation } from '@react-navigation/native';
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { SOCKET_EVENTS } from '@coach-connect/shared/realtime';
 import type { ChatReadPayload, MessageNewPayload } from '@coach-connect/shared/realtime';
 import { chatApi, ChatMessage, ChatSummary } from '@/src/service/api/chat.api';
 import { withAuth } from '@/src/service/setup/withAuth';
+import { ApiError } from '@/src/service/setup/apiClient';
 import { showApiError } from '@/src/service/setup/handleApiError';
 import { getSocket } from '@/src/service/socket/socket';
+import { useActiveChatStore } from '@/src/store/activeChat.store';
 import { useAuthStore } from '@/src/store/auth.store';
 import { showToast } from '@/src/store/toast.store';
+import { applyMyRead } from '../../messages/chatsCache';
+import { patchChatsCache } from '../../messages/hook/useUnreadTotal';
 
 /** A message as the screen sees it: one that is saved, or one still on its way (or that failed). */
-export interface ChatItem extends Omit<ChatMessage, 'id' | 'sequenceNumber'> {
+export interface ChatItem extends Omit<ChatMessage, 'id' | 'sequenceNumber' | 'senderName'> {
   id?: string;
   sequenceNumber?: number;
+  /** Missing on my own message that is still on its way; only other people's names are ever shown. */
+  senderName?: string;
   status: 'sent' | 'sending' | 'failed';
 }
 
@@ -37,15 +44,26 @@ export function mergeMessages(current: ChatItem[], incoming: ChatMessage[]): Cha
 }
 
 /** The messages of one chat: sending, "seen", older pages, and live updates pushed by the server (socket). */
-function useChatMessages(chatId: string, meId: string) {
+function useChatMessages(chatId: string, meId: string, initialCanSend: boolean) {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasOlder, setHasOlder] = useState(false);
   const [otherLastReadSequenceNumber, setOtherLastReadSequenceNumber] = useState(0);
+  // false = read-only: in a direct chat the other person is banned. The server says so with every page.
+  const [canSend, setCanSend] = useState(initialCanSend);
   const newest = useRef(0); // highest saved message number we hold
   const oldest = useRef<number | null>(null);
   const markedRead = useRef(0);
+  const queryClient = useQueryClient();
+
+  // While this chat is on screen, new messages in it are read at once: the unread counter must not count them.
+  useEffect(() => {
+    useActiveChatStore.getState().set(chatId);
+    return () => {
+      if (useActiveChatStore.getState().chatId === chatId) useActiveChatStore.getState().set(null);
+    };
+  }, [chatId]);
   const catchingUp = useRef(false);
 
   const markRead = useCallback(
@@ -53,11 +71,15 @@ function useChatMessages(chatId: string, meId: string) {
       if (upTo <= markedRead.current) return;
       markedRead.current = upTo;
       // "Seen" is a nicety: if this fails the next message tries again.
-      withAuth((t) => chatApi.markRead(t, chatId, upTo)).catch(() => {
-        markedRead.current = 0;
-      });
+      withAuth((t) => chatApi.markRead(t, chatId, upTo))
+        // Update the unread counter right away from the server's answer: it does not depend on the live socket
+        // being up, so the badge on the tab bar is right even when the connection is down.
+        .then(({ lastReadSequenceNumber }) => patchChatsCache(queryClient, (chats) => applyMyRead(chats, chatId, lastReadSequenceNumber)))
+        .catch(() => {
+          markedRead.current = 0;
+        });
     },
-    [chatId],
+    [chatId, queryClient],
   );
 
   /** Take in saved messages that arrived (from the first load or a refresh). */
@@ -82,6 +104,7 @@ function useChatMessages(chatId: string, meId: string) {
         absorb(page.items);
         setHasOlder(page.hasMore);
         setOtherLastReadSequenceNumber(page.otherLastReadSequenceNumber);
+        setCanSend(page.canSend);
       } catch (e) {
         if (!cancelled) showApiError(e);
       } finally {
@@ -105,6 +128,7 @@ function useChatMessages(chatId: string, meId: string) {
       const page = await withAuth((t) => chatApi.messages(t, chatId, { after: newest.current }));
       absorb(page.items);
       setOtherLastReadSequenceNumber(page.otherLastReadSequenceNumber);
+      setCanSend(page.canSend); // a ban or an unban while the chat is open shows up here
     } catch {
       // Quiet on purpose: the next reconnect or push tries again, and sending shows its own errors.
     } finally {
@@ -162,7 +186,14 @@ function useChatMessages(chatId: string, meId: string) {
         const { message } = await withAuth((t) => chatApi.send(t, chatId, { clientMessageId, body }));
         absorb([message]);
       } catch (e) {
-        setItems((cur) => cur.map((m) => (m.clientMessageId === clientMessageId ? { ...m, status: 'failed' } : m)));
+        if (e instanceof ApiError && e.code === 'CANNOT_MESSAGE') {
+          // The chat was closed under us (the other person was banned): retrying is pointless, so drop the unsent
+          // text and turn the chat read-only instead of leaving a "Tap to retry" that can never work.
+          setItems((cur) => cur.filter((m) => m.clientMessageId !== clientMessageId));
+          setCanSend(false);
+        } else {
+          setItems((cur) => cur.map((m) => (m.clientMessageId === clientMessageId ? { ...m, status: 'failed' } : m)));
+        }
         showApiError(e);
       }
     },
@@ -191,20 +222,28 @@ function useChatMessages(chatId: string, meId: string) {
     [items, deliver],
   );
 
-  return { items, loading, hasOlder, loadingOlder, otherLastReadSequenceNumber, send, retry, loadOlder };
+  return { items, loading, hasOlder, loadingOlder, otherLastReadSequenceNumber, canSend, send, retry, loadOlder };
 }
 
-/** Everything the Chat screen needs: the other person, the messages, sending, and the header buttons. */
+/** Everything the Chat screen needs: who it is with, the messages, sending, and the header buttons. */
 export function useChat(chat: ChatSummary) {
   const navigation = useNavigation();
   const meId = useAuthStore((s) => s.user?.id ?? '');
-  const messages = useChatMessages(chat.id, meId);
+  const messages = useChatMessages(chat.id, meId, chat.canSend);
+  const isGroup = chat.type === 'GROUP';
 
   return {
     ...messages,
     meId,
+    isGroup,
+    /** The other person's name, or the group's name. */
+    title: chat.title,
+    /** Direct chats only. */
     other: chat.other,
+    memberCount: chat.memberCount,
     goBack: () => navigation.goBack(),
-    call: () => showToast(`Calling ${chat.other.name} is coming soon.`, 'info'),
+    call: () => showToast(isGroup ? 'Group calls are coming soon.' : `Calling ${chat.title} is coming soon.`, 'info'),
+    /** Group chats: open the screen with the description and the people. */
+    openInfo: () => navigation.navigate('GroupInfo', { chatId: chat.id, title: chat.title }),
   };
 }

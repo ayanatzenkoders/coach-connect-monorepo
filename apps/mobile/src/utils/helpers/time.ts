@@ -9,6 +9,14 @@ export function clockTime(date: Date): string {
   return `${h % 12 || 12}:${m} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
+/** "2026-11-27T..." -> "Nov 27, 2026" (by hand, like the other helpers). Empty or invalid input gives "". */
+export function longDate(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${MONTHS[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+}
+
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 
 /** The time shown on a Messages row: "5:48 PM" today, "Yesterday", "Tue" this week, otherwise "Oct 14". */

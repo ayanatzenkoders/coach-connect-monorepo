@@ -6,6 +6,7 @@ import {
   ForgotPasswordInputSchema,
   LoginInputSchema,
   RefreshInputSchema,
+  RegisterCoachInputSchema,
   RegisterInputSchema,
   ResetPasswordInputSchema,
   VerifyEmailInputSchema,
@@ -15,13 +16,14 @@ import type {
   ForgotPasswordInput,
   LoginInput,
   RefreshInput,
+  RegisterCoachInput,
   RegisterInput,
   ResetPasswordInput,
   VerifyEmailInput,
   VerifyResetCodeInput,
 } from '@coach-connect/shared';
 import type { AuthUser } from '../common/auth-user.js';
-import { Audience, CurrentUser, Public } from '../common/decorators/index.js';
+import { AllowPendingCoach, Audience, CurrentUser, Public } from '../common/decorators/index.js';
 import { AuthService } from './auth.service.js';
 import { EmailVerificationService } from './email-verification.service.js';
 import { PasswordResetService } from './password-reset.service.js';
@@ -44,6 +46,13 @@ export class AuthController {
     return this.auth.register(dto);
   }
 
+  /** A coach applies. The account exists but cannot be used until an admin approves it. */
+  @Public() @Throttle(AUTH_LIMIT)
+  @Post(API_ROUTES.auth.registerCoach)
+  registerCoach(@Body({ schema: RegisterCoachInputSchema }) dto: RegisterCoachInput) {
+    return this.auth.registerCoach(dto);
+  }
+
   @Public() @Throttle(AUTH_LIMIT) @HttpCode(200)
   @Post(API_ROUTES.auth.login)
   login(@Body({ schema: LoginInputSchema }) dto: LoginInput) {
@@ -57,26 +66,26 @@ export class AuthController {
     return this.auth.refresh(dto.refreshToken);
   }
 
-  @Audience('any') @HttpCode(204)
+  @AllowPendingCoach() @Audience('any') @HttpCode(204)
   @Post(API_ROUTES.auth.logout)
   async logout(@CurrentUser() user: AuthUser) {
     await this.auth.logout(user.sessionId);
   }
 
-  @Audience('any')
+  @AllowPendingCoach() @Audience('any')
   @Get(API_ROUTES.auth.me)
   me(@CurrentUser() user: AuthUser) {
     return this.auth.me(user.id);
   }
 
   /** Email me a (new) 6-digit code. Needs login; at most one per minute. */
-  @Throttle(AUTH_LIMIT) @HttpCode(200)
+  @AllowPendingCoach() @Throttle(AUTH_LIMIT) @HttpCode(200)
   @Post(API_ROUTES.auth.emailSendCode)
   sendEmailCode(@CurrentUser() user: AuthUser) {
     return this.emailVerification.sendCode(user.id);
   }
 
-  @Throttle(AUTH_LIMIT) @HttpCode(200)
+  @AllowPendingCoach() @Throttle(AUTH_LIMIT) @HttpCode(200)
   @Post(API_ROUTES.auth.emailVerify)
   verifyEmail(@CurrentUser() user: AuthUser, @Body({ schema: VerifyEmailInputSchema }) dto: VerifyEmailInput) {
     return this.emailVerification.verify(user.id, dto.code);

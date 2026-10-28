@@ -21,7 +21,7 @@ export class ApiError extends Error {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST';
+  method?: 'GET' | 'POST' | 'DELETE';
   body?: unknown;
   /** Adds the "Authorization: Bearer ..." header. */
   accessToken?: string | null;

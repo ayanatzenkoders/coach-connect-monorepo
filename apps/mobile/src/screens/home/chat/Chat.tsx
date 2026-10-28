@@ -1,7 +1,7 @@
 import React, { memo, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BackIcon, CustomAvatar, PhoneIcon, SendIcon } from '@/src/components';
+import { BackIcon, CustomAvatar, CustomConnectionBanner, PhoneIcon, SendIcon } from '@/src/components';
 import { COLORS, MAX_FONT_SCALE, MESSAGE_MAX_LENGTH, MIN_TOUCH } from '@/src/constants';
 import { useKeyboardVisible } from '@/src/utils/hooks/useKeyboardVisible';
 import type { RootStackScreenProps } from '@/src/utils/types';
@@ -21,7 +21,9 @@ const Chat: React.FC<Props> = ({ route }) => {
     if (m.status === 'sending') return 'Sending…';
     if (m.status === 'failed') return 'Not sent. Tap to retry';
     if (m !== lastMine) return null;
-    return m.sequenceNumber !== undefined && chat.otherLastReadSequenceNumber >= m.sequenceNumber ? 'Seen' : 'Sent';
+    const seen = m.sequenceNumber !== undefined && chat.otherLastReadSequenceNumber >= m.sequenceNumber;
+    // In a group, "seen" means everybody still in it has read the message.
+    return seen ? (chat.isGroup ? 'Seen by all' : 'Seen') : 'Sent';
   };
 
   // The list is "inverted" (newest first, drawn from the bottom). Rebuilt only when the messages change,
@@ -34,19 +36,29 @@ const Chat: React.FC<Props> = ({ route }) => {
         <Pressable accessibilityRole="button" accessibilityLabel="Back to messages" onPress={chat.goBack} style={styles.headerButton}>
           <BackIcon />
         </Pressable>
-        <CustomAvatar id={chat.other.id} name={chat.other.name} size={40} />
-        <View style={styles.headerText}>
-          <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.headerName} numberOfLines={1}>
-            {chat.other.name}
-          </Text>
-          <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.headerRole}>
-            {chat.other.role === 'COACH' ? 'Coach' : 'Member'}
-          </Text>
-        </View>
+        {/* A group's name and avatar open its info (description and people). A direct chat's header is just the person. */}
+        <Pressable
+          accessibilityRole={chat.isGroup ? 'button' : undefined}
+          accessibilityLabel={chat.isGroup ? `Group info for ${chat.title}` : undefined}
+          disabled={!chat.isGroup}
+          onPress={chat.openInfo}
+          style={styles.who}>
+          <CustomAvatar id={chat.other?.id ?? route.params.chat.id} name={chat.title} size={40} />
+          <View style={styles.headerText}>
+            <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.headerName} numberOfLines={1}>
+              {chat.title}
+            </Text>
+            <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.headerRole}>
+              {chat.isGroup ? `${chat.memberCount} people` : chat.other?.role === 'COACH' ? 'Coach' : 'Member'}
+            </Text>
+          </View>
+        </Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Audio call" onPress={chat.call} style={styles.headerButton}>
           <PhoneIcon color={COLORS.primary} />
         </Pressable>
       </View>
+
+      <CustomConnectionBanner />
 
       {chat.loading ? (
         <ActivityIndicator accessibilityLabel="Loading messages" color={COLORS.primary} style={styles.loader} />
@@ -63,19 +75,41 @@ const Chat: React.FC<Props> = ({ route }) => {
           ListFooterComponent={chat.loadingOlder ? <ActivityIndicator color={COLORS.primary} style={styles.olderLoader} /> : undefined}
           ListEmptyComponent={
             <Text style={styles.empty} accessibilityLabel="No messages yet">
-              Say hello to {chat.other.name.split(' ')[0]}.
+              {chat.isGroup ? 'Say hello to the group.' : `Say hello to ${chat.title.split(' ')[0]}.`}
             </Text>
           }
-          renderItem={({ item }) => <Bubble item={item} mine={item.senderId === meId} meta={metaFor(item)} onRetry={chat.retry} />}
+          renderItem={({ item, index }) => {
+            const mine = item.senderId === meId;
+            // The list is newest first, so the NEXT entry is the older message. In a group, other people's messages get their
+            // name above the bubble, once per run of messages from the same person.
+            const older = listData[index + 1];
+            const senderName = chat.isGroup && !mine && older?.senderId !== item.senderId ? item.senderName : undefined;
+            return <Bubble item={item} mine={mine} meta={metaFor(item)} senderName={senderName} onRetry={chat.retry} />;
+          }}
         />
       )}
 
-      <Composer onSend={chat.send} />
+      {chat.canSend ? <Composer onSend={chat.send} /> : <ClosedNotice isGroup={chat.isGroup} name={chat.title} />}
     </KeyboardAvoidingView>
   );
 };
 
 export default Chat;
+
+/**
+ * Shown instead of the text box when nobody can write here: the other person was banned. The history above stays
+ * readable. It goes away by itself if they are unbanned (the next refresh says `canSend` again).
+ */
+function ClosedNotice({ isGroup, name }: { isGroup: boolean; name: string }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View accessibilityRole="alert" style={[styles.closed, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+      <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.closedText}>
+        {isGroup ? 'You cannot send messages here.' : `${name} is no longer available. You can read this chat but not reply.`}
+      </Text>
+    </View>
+  );
+}
 
 /**
  * The text box and Send button. It owns the draft text AND the keyboard state, so a keystroke or the
@@ -121,10 +155,15 @@ function Composer({ onSend }: { onSend: (text: string) => void }) {
   );
 }
 
-const Bubble = memo(function BubbleRow({ item, mine, meta, onRetry }: { item: ChatItem; mine: boolean; meta: string | null; onRetry: (clientMessageId: string) => void }) {
+const Bubble = memo(function BubbleRow({ item, mine, meta, senderName, onRetry }: { item: ChatItem; mine: boolean; meta: string | null; senderName?: string; onRetry: (clientMessageId: string) => void }) {
   const failed = item.status === 'failed';
   return (
     <View style={[styles.row, mine ? styles.rowMine : styles.rowTheirs]}>
+      {senderName ? (
+        <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.senderName} numberOfLines={1}>
+          {senderName}
+        </Text>
+      ) : null}
       <Pressable
         accessibilityLabel={failed ? 'Retry sending message' : undefined}
         disabled={!failed}
@@ -141,6 +180,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: COLORS.background },
   header: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 4, paddingBottom: 10, backgroundColor: COLORS.surface, borderBottomWidth: 1, borderBottomColor: COLORS.divider },
   headerButton: { width: MIN_TOUCH, height: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' },
+  who: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0 },
   headerText: { flex: 1, minWidth: 0 },
   headerName: { fontSize: 16, fontWeight: '600', color: COLORS.ink },
   headerRole: { fontSize: 13, fontWeight: '600', color: COLORS.primary },
@@ -159,6 +199,9 @@ const styles = StyleSheet.create({
   bubbleText: { fontSize: 15, lineHeight: 22, color: COLORS.ink },
   bubbleTextMine: { color: COLORS.onPrimary },
   meta: { fontSize: 12, color: COLORS.inkMuted },
+  senderName: { fontSize: 12, fontWeight: '600', color: COLORS.primary, marginLeft: 4 },
+  closed: { paddingHorizontal: 20, paddingTop: 14, backgroundColor: COLORS.surface, borderTopWidth: 1, borderTopColor: COLORS.divider },
+  closedText: { fontSize: 14, lineHeight: 20, color: COLORS.inkSecondary, textAlign: 'center' },
   metaFailed: { color: COLORS.error, fontWeight: '600' },
   composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 12, paddingTop: 10, backgroundColor: COLORS.surface, borderTopWidth: 1, borderTopColor: COLORS.divider },
   input: { flex: 1, minHeight: 44, maxHeight: 120, borderWidth: 1, borderColor: COLORS.border, borderRadius: 22, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11, fontSize: 16, color: COLORS.ink, backgroundColor: COLORS.background },

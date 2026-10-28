@@ -6,7 +6,7 @@ import { AppException } from '../common/errors/app.exception.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { hasActiveAccess } from '../subscriptions/subscription-access.js';
-import type { LoginInput, RegisterInput } from '@coach-connect/shared';
+import type { LoginInput, RegisterCoachInput, RegisterInput } from '@coach-connect/shared';
 import { EmailVerificationService } from './email-verification.service.js';
 import { PasswordService } from './password.service.js';
 import { TokenService } from './token.service.js';
@@ -37,15 +37,24 @@ interface PublicUser {
   name: string;
   role: Role;
   emailVerified: boolean;
+  /** A coach an admin has not approved yet (the app shows "waiting for approval" instead of the home screen). */
+  pendingApproval: boolean;
 }
 
-const toPublic = (u: User): PublicUser => ({
+/** A user row together with the coach approval (the profile row may not exist for a brand new coach). */
+type UserWithProfile = User & { coachProfile?: { approved: boolean } | null };
+
+const toPublic = (u: UserWithProfile): PublicUser => ({
   id: u.id,
   email: u.email,
   name: u.name,
   role: u.role,
   emailVerified: u.emailVerifiedAt !== null,
+  pendingApproval: u.role === 'COACH' && !u.coachProfile?.approved,
 });
+
+/** "2000-01-31" -> a Date at midnight UTC, which the database stores as that calendar day (column type DATE). */
+const dayOf = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 
 @Injectable()
 export class AuthService {
@@ -77,7 +86,7 @@ export class AuthService {
     let user: User;
     try {
       user = await this.prisma.user.create({
-        data: { email: dto.email, passwordHash, name: dto.name.trim(), role: 'MEMBER' },
+        data: { email: dto.email, passwordHash, name: dto.name.trim(), dateOfBirth: dayOf(dto.dateOfBirth), role: 'MEMBER' },
       });
     } catch (e) {
       // Two sign-ups racing past the check above: the partial unique index catches the loser.
@@ -89,10 +98,42 @@ export class AuthService {
     return this.startSession(user, 'MOBILE', dto.deviceId, dto.deviceName);
   }
 
+  /**
+   * A coach applies. Same steps as a member (account, verification email, a session so they can type the code), but the
+   * account starts UNAPPROVED: the profile row is created with `approved = false`, so they are invisible in People and
+   * every route except verify-email / me / logout answers 403 until an admin approves. User and profile are saved together.
+   */
+  async registerCoach(dto: RegisterCoachInput): Promise<AuthResult> {
+    const taken = await this.prisma.user.findFirst({ where: { email: dto.email, deletedAt: null }, select: { id: true } });
+    if (taken) throw this.emailTaken();
+
+    const passwordHash = await this.passwords.hash(dto.password);
+    let user: UserWithProfile;
+    try {
+      user = await this.prisma.user.create({
+        data: {
+          email: dto.email,
+          passwordHash,
+          name: dto.name.trim(),
+          phone: dto.phone,
+          dateOfBirth: dayOf(dto.dateOfBirth),
+          role: 'COACH',
+          coachProfile: { create: { bio: dto.bio, specialties: dto.specialties, approved: false, available: false } },
+        },
+        include: { coachProfile: { select: { approved: true } } },
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') throw this.emailTaken();
+      throw e;
+    }
+    await this.emailVerification.sendCode(user.id).catch(() => undefined);
+    return this.startSession(user, 'MOBILE', dto.deviceId, dto.deviceName);
+  }
+
   // ─────────────────────────── login ───────────────────────────
 
   async login(dto: LoginInput, audience: SessionAudience): Promise<AuthResult> {
-    const user = await this.prisma.user.findFirst({ where: { email: dto.email, deletedAt: null } });
+    const user = await this.prisma.user.findFirst({ where: { email: dto.email, deletedAt: null }, include: { coachProfile: { select: { approved: true } } } });
 
     // Same error for "no such email", "wrong password", "social-only account" and
     // "wrong app for this role": the caller learns nothing about which one it was.
@@ -105,6 +146,12 @@ export class AuthService {
 
     // Only someone who proved the password gets told the account is banned.
     if (user.bannedAt) throw this.banned();
+
+    // A coach who verified their email and now waits for an admin cannot sign in yet. One who has NOT verified yet may
+    // (it is the only way to get the code screen back after closing the app); the API still limits them to verifying.
+    if (toPublic(user).pendingApproval && user.emailVerifiedAt) {
+      throw new AppException(403, 'COACH_PENDING_APPROVAL', 'Your application is waiting for approval. We will email you as soon as it is approved.');
+    }
 
     if (this.passwords.needsRehash(user.passwordHash)) {
       await this.prisma.user.update({
@@ -127,7 +174,7 @@ export class AuthService {
     for (let attempt = 0; attempt < 2; attempt++) {
       const session = await this.prisma.session.findUnique({
         where: { id: parsed.sessionId },
-        include: { user: true },
+        include: { user: { include: { coachProfile: { select: { approved: true } } } } },
       });
       if (!session) throw this.invalidRefresh();
       if (session.revokedAt) throw new AppException(401, 'SESSION_REVOKED', 'Session ended. Please sign in again.');
@@ -206,7 +253,7 @@ export class AuthService {
   async me(userId: string) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      include: { subscription: true },
+      include: { subscription: true, coachProfile: { select: { approved: true } } },
     });
     return {
       ...toPublic(user),
@@ -222,7 +269,7 @@ export class AuthService {
 
   /** Creates the session row and the first pair of tokens. */
   private async startSession(
-    user: User,
+    user: UserWithProfile,
     audience: SessionAudience,
     deviceId: string,
     deviceName?: string,

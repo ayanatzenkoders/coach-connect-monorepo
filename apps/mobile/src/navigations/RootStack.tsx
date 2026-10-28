@@ -3,10 +3,15 @@ import React, { useEffect } from 'react';
 import { AppState } from 'react-native';
 import { COLORS } from '@/src/constants';
 import Chat from '@/src/screens/home/chat/Chat';
+import AddMembers from '@/src/screens/home/addMembers/AddMembers';
+import GroupInfo from '@/src/screens/home/groupInfo/GroupInfo';
+import NewGroup from '@/src/screens/home/newGroup/NewGroup';
 import Main from '@/src/screens/home/main/Main';
 import ForgotPassword from '@/src/screens/auth/forgotPassword/ForgotPassword';
 import NewPassword from '@/src/screens/auth/newPassword/NewPassword';
+import PendingApproval from '@/src/screens/auth/pendingApproval/PendingApproval';
 import Register from '@/src/screens/auth/register/Register';
+import RegisterCoach from '@/src/screens/auth/registerCoach/RegisterCoach';
 import ResetCode from '@/src/screens/auth/resetCode/ResetCode';
 import SignIn from '@/src/screens/auth/signIn/SignIn';
 import VerifyEmail from '@/src/screens/auth/verifyEmail/VerifyEmail';
@@ -31,16 +36,19 @@ const SCREEN_OPTIONS = {
  *  - offline:      a saved login but no connection (the user stays signed in)
  *  - signedOut:    Sign in, Create account and the three "Forgot password" steps
  *  - email check:  a new account must prove its email first
+ *  - pending:      a coach who applied waits here until an admin approves
  *  - signedIn:     the tabs, and a chat on top of them
  */
 const RootStack: React.FC = () => {
   const status = useAuthStore((s) => s.status);
   const emailVerified = useAuthStore((s) => s.user?.emailVerified ?? false);
+  // A coach an admin has not approved yet: the server refuses everything but "who am I", so show a waiting screen.
+  const pending = useAuthStore((s) => s.user?.pendingApproval ?? false);
 
   // REAL-TIME: the live connection exists exactly while the user is signed in. Signing out (or a ban that
   // ends the session) changes `status`, which closes the socket here, so nothing is pushed to a signed-out phone.
   useEffect(() => {
-    if (status !== 'signedIn') {
+    if (status !== 'signedIn' || pending) {
       disconnectSocket();
       return;
     }
@@ -49,7 +57,7 @@ const RootStack: React.FC = () => {
     // (connect() does nothing if the socket is still open). Screens then catch up on what they missed.
     const sub = AppState.addEventListener('change', (state) => state === 'active' && connectSocket());
     return () => sub.remove();
-  }, [status]);
+  }, [status, pending]);
 
   return (
     <Stack.Navigator screenOptions={SCREEN_OPTIONS}>
@@ -59,16 +67,22 @@ const RootStack: React.FC = () => {
         <Stack.Group>
           <Stack.Screen name="SignIn" component={SignIn} />
           <Stack.Screen name="Register" component={Register} />
+          <Stack.Screen name="RegisterCoach" component={RegisterCoach} />
           <Stack.Screen name="ForgotPassword" component={ForgotPassword} />
           <Stack.Screen name="ResetCode" component={ResetCode} />
           <Stack.Screen name="NewPassword" component={NewPassword} />
         </Stack.Group>
       ) : status === 'signedIn' && !emailVerified ? (
         <Stack.Screen name="VerifyEmail" component={VerifyEmail} />
+      ) : pending ? (
+        <Stack.Screen name="PendingApproval" component={PendingApproval} />
       ) : (
         <Stack.Group>
           <Stack.Screen name="Main" component={Main} />
           <Stack.Screen name="Chat" component={Chat} />
+          <Stack.Screen name="NewGroup" component={NewGroup} />
+          <Stack.Screen name="GroupInfo" component={GroupInfo} />
+          <Stack.Screen name="AddMembers" component={AddMembers} />
         </Stack.Group>
       )}
     </Stack.Navigator>

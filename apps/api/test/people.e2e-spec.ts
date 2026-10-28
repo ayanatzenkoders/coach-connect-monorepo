@@ -52,17 +52,15 @@ describe('GET /people', () => {
     expect(names(await list('me@x.com', 'members'))).toEqual(['Bob', 'Cara']);
   });
 
-  it('hides blocked people in BOTH directions', async () => {
-    const me = await seedUser(prisma, 'me@x.com', 'MEMBER', 'Me');
+  it('a banned person disappears from People, and comes back when unbanned (their chats are unaffected, see chat tests)', async () => {
+    await seedUser(prisma, 'me@x.com', 'MEMBER', 'Me');
     const bob = await seedUser(prisma, 'b@x.com', 'MEMBER', 'Bob');
-    const cara = await seedUser(prisma, 'c@x.com', 'MEMBER', 'Cara');
     await seedUser(prisma, 'd@x.com', 'MEMBER', 'Dan');
-    await prisma.block.create({ data: { blockerId: me.id, blockedId: bob.id } }); // I blocked Bob
-    await prisma.block.create({ data: { blockerId: cara.id, blockedId: me.id } }); // Cara blocked me
+    expect(names(await list('me@x.com', 'members'))).toEqual(['Bob', 'Dan']);
+    await prisma.user.update({ where: { id: bob.id }, data: { bannedAt: new Date() } });
     expect(names(await list('me@x.com', 'members'))).toEqual(['Dan']);
-    // and Bob/Cara do not see me either
-    expect(names(await list('b@x.com', 'members'))).not.toContain('Me');
-    expect(names(await list('c@x.com', 'members'))).not.toContain('Me');
+    await prisma.user.update({ where: { id: bob.id }, data: { bannedAt: null } });
+    expect(names(await list('me@x.com', 'members'))).toEqual(['Bob', 'Dan']);
   });
 
   it('a coach can open the People list too, and bad input is rejected', async () => {

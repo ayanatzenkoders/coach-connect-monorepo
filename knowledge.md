@@ -121,7 +121,7 @@ Then once: `DATABASE_URL=postgresql://coach:coach_dev_password@localhost:5432/co
 ## 4. Database
 
 Postgres 16. Prisma 7 (schema in `apps/api/prisma/schema.prisma`; connection URL lives in `prisma.config.ts`).
-Tables: `users`, `sessions`, `coach_profiles`, `subscriptions`, `user_blocks`, `verification_codes`, `chats`, `chat_members`, `messages`, `audit_logs`.
+Tables: `users`, `sessions`, `coach_profiles`, `subscriptions`, `verification_codes`, `chats`, `chat_members`, `messages`, `audit_logs`.
 
 ### 4.1 Conventions
 - **Primary keys: UUID v7** (`@default(uuid(7))`). Time-ordered, so new rows append to the end of the index (faster inserts, less bloat than random v4) and ids cannot be guessed like `1,2,3`.
@@ -145,6 +145,8 @@ Types are Postgres types. "Written by" = which code sets it. Column names are wh
 | `name` | text | Display name shown in People, chats and the admin panel. Searched with the trigram index. |
 | `role` (`user_role`) | enum | `MEMBER`, `COACH`, `SUPPORT`, `ADMIN`. Read from the database on every request. |
 | `banned_at` | timestamptz, null | The ONLY ban column: null = not banned, set = banned since then. The guard checks it on every request. Who banned and why is not stored here; it is in `audit_logs` (action `user.ban`, `actor_id` + `metadata.reason`). Written by `BanService.ban`; cleared on unban. |
+| `phone` | text, null | Coach sign-up only (members are not asked). CHECK: digits, spaces, dashes, brackets, optional leading `+`, 7 to 20 characters. Only ADMINs see it (the admin list hides it from SUPPORT; People never returns it). |
+| `date_of_birth` | date, null | Calendar day, no time zone. Required at sign-up for members and coaches, any age; null for accounts made before it existed. CHECK: between 1900-01-01 and today. Shown to staff in the admin panel only. |
 | `email_verified_at` | timestamptz, null | Set when the 6-digit email code is accepted (or a password reset proves the address). Null = the app shows "Check your email". |
 | `deleted_at` | timestamptz, null | Soft delete (account deletion). Live queries use `deleted_at IS NULL`. |
 | `created_at` / `updated_at` | timestamptz | Row bookkeeping. `updated_at` is maintained by Prisma. |
@@ -180,9 +182,6 @@ Types are Postgres types. "Written by" = which code sets it. Column names are wh
 | `plan` | `monthly` or `yearly`. |
 | `expires_at` | End of the current paid/trial period. |
 
-**`user_blocks`** ("blocker has blocked blocked"; hides both people from each other in People, chat and calls)
-`blocker_id`, `blocked_id` (together the primary key; CHECK they differ), `created_at`. The reverse index on `blocked_id` answers "who blocked me".
-
 **`verification_codes`** (6-digit emailed codes; formerly `one_time_codes`)
 | Column | Meaning and use |
 |---|---|
@@ -198,11 +197,13 @@ Types are Postgres types. "Written by" = which code sets it. Column names are wh
 **`chats`** (a chat room; one row per DIRECT pair now, groups later)
 | Column | Meaning and use |
 |---|---|
-| `type` (`chat_type`) | `DIRECT` (two members) or `GROUP` (reserved, not built). |
+| `type` (`chat_type`) | `DIRECT` (two members) or `GROUP` (3 to 6 people, at most ONE coach). |
 | `direct_key` | DIRECT only: `<smaller user id>:<larger user id>`, unique, so A-opens-B and B-opens-A are the same chat and a pair never has two. Null for groups (CHECK: DIRECT <=> has a key). |
-| `title` | GROUP only. |
+| `title` | GROUP only; required for a group (CHECK). |
+| `description` | GROUP only, optional, up to 300 characters. |
+| `created_by_id` | Who created the group (null for direct chats, or if that account was deleted). |
 | `last_message_sequence_number` | Number of the newest message; the next message takes this + 1. |
-| `last_message_at` | Time of the newest message (sorts the Messages list). Null = empty chat, hidden from the list. |
+| `last_message_at` | Time of the newest message (sorts the Messages list). Null = an empty DIRECT chat, hidden from the list. A group sets it when it is created, so it shows at once. |
 | `created_at` / `updated_at` | Row bookkeeping. |
 
 **`chat_members`** (junction: which users are in which chat, plus how far each has read)
@@ -227,7 +228,7 @@ Types are Postgres types. "Written by" = which code sets it. Column names are wh
 | Value | Meaning |
 |-------|---------|
 | `MEMBER` | Paying app user. Calls coaches and other members, chats, can be added to coach calls. Needs a subscription to call. |
-| `COACH` | Approved coach. Receives calls. Never needs a subscription. Created/approved by an Admin (no self sign-up). |
+| `COACH` | Receives calls, never needs a subscription. Applies from the app (`/auth/register-coach`) and is unusable until an admin approves. |
 | `SUPPORT` | Staff, web panel only, **read-only**. Cannot ban, edit or delete. |
 | `ADMIN` | Staff, web panel only, full control including ban/unban. |
 
@@ -290,7 +291,6 @@ An index is a sorted lookup structure: instead of reading every row, Postgres ju
 | Index | Why it exists |
 |-------|---------------|
 | `sessions(user_id)` | Find all sessions of a user (ban, logout-all, devices screen). Also makes `ON DELETE CASCADE` from users fast. |
-| `user_blocks(blocked_id)` | The primary key `(blocker_id, blocked_id)` serves "who did I block". This reverse index serves "who blocked me", needed for the either-direction check. |
 | `audit_logs(actor_id, created_at)` | "What did this admin do, newest first." |
 | `audit_logs(target_type, target_id, created_at)` | "History of this user." |
 | `audit_logs(created_at)` | Global recent-activity feed. |
@@ -316,7 +316,7 @@ Important: for Postgres to use a partial index, the query's WHERE must **include
 - `users_email_lowercase_chk`: `email = lower(email)`
 - `chats_direct_key_check`: a DIRECT chat has a `direct_key`, a GROUP has none
 - `chat_members_last_read_sequence_number_check`, `chats_last_message_sequence_number_check`: counters never negative
-- `blocks_not_self_chk`: you cannot block yourself
+- `chats_group_title_check`: a GROUP always has a title (1 to 60 characters); `chats_description_length_check`: a description is at most 300
 - `verification_codes_failed_attempts_chk`: wrong-guess counter can't go negative
 
 **Planned indexes (not created yet, with the use case)**
@@ -398,8 +398,9 @@ A valid signature only proves the token was issued. To make logout and bans effe
 
 | Method + path | Auth | Notes |
 |---------------|------|-------|
-| `POST /auth/register` | public | Always creates a `MEMBER`. Extra fields (e.g. `role`) are rejected (400). |
-| `POST /auth/login` | public | MEMBER/COACH only. |
+| `POST /auth/register` | public | Always creates a `MEMBER`. Needs `dateOfBirth` ("YYYY-MM-DD", a real day, not in the future, any age). Extra fields (e.g. `role`) are rejected (400). |
+| `POST /auth/register-coach` | public | A coach applies: the member fields plus `phone` (admins only ever see it), `bio` (20 to 600 characters) and 1 to 5 `specialties` from the fixed list `COACH_SPECIALTIES`. Creates a `COACH` with `coach_profiles.is_approved = false`, emails the verification code and returns a session (needed to type the code). Until an admin approves, the account is gated: see "Coach sign-up and approval" below. |
+| `POST /auth/login` | public | MEMBER/COACH only. A coach who verified the email but is not approved yet gets 403 `COACH_PENDING_APPROVAL` and NO session (checked after the password, so nothing leaks to strangers). A coach who has not verified yet may sign in (to finish the code), but the gate below still applies. |
 | `POST /auth/refresh` | public (needs refresh token) | Works for mobile and admin sessions. |
 | `POST /auth/logout` | any token | Revokes current session. 204. |
 | `GET /auth/me` | any token | Profile + subscription + `canCall`. |
@@ -409,11 +410,17 @@ A valid signature only proves the token was issued. To make logout and bans effe
 | `POST /auth/password/verify-code` `{email, code}` | public | Step 2. Right code -> `{resetToken, expiresInSeconds}` (10 min). Wrong/expired/locked -> 400 `INVALID_CODE` (+`attemptsLeft`), `CODE_EXPIRED`, `CODE_LOCKED`. |
 | `POST /auth/password/reset` `{resetToken, newPassword}` | public | Step 3. Sets the password, **signs out every device** (`PASSWORD_CHANGED`), marks the email verified, writes an audit row. Bad/expired/used token -> 400 `RESET_TOKEN_INVALID`. |
 | `POST /admin/auth/login` | public | SUPPORT/ADMIN only. Issues an `admin`-audience token. |
+| `GET /admin/users?q=&role=&status=&cursor=&limit=` | SUPPORT, ADMIN | The admin user list: search by name or email, filter by role and by `status=banned` or `status=pending` (coaches not yet approved, including a coach with no profile row). Newest first, cursor paging (uuid v7 ids are time-ordered, so the cursor is the last id). Also `status=unverified` (email code never entered). Returns `{items: [{id, email, name, role, bannedAt, isApproved, emailVerified, phone, dateOfBirth, coach: {bio, specialties} | null, createdAt}], nextCursor}`; `isApproved` is null for non-coaches; `phone` is null for SUPPORT (admins only). |
 | `GET /admin/users/:id` | SUPPORT, ADMIN | Read-only user detail. |
+| `POST /admin/coaches/:id/approve` | ADMIN only | Sets `coach_profiles.is_approved`. Approved coaches appear in the app's People list and can be messaged. 400 `NOT_A_COACH`, 404 `USER_NOT_FOUND`. Answers `{isApproved, changed}`; repeating is harmless (`changed: false`, no second audit entry). Audit `coach.approve` in the same transaction. After the commit the coach gets the email "Your Coach Connect application is approved" (`coachApprovedEmail`); a mail failure is only logged, the approval stays. Repeating sends no second email. There is no "un-approve": to take a coach away, ban them (section 7). |
 | `POST /admin/users/:id/ban`, `/unban` | ADMIN only | See Section 7. |
-| `GET /people?kind=coaches\|members&q=&specialty=&available=&cursor=&limit=` | any logged-in mobile user | Hides yourself, banned/deleted, blocked (both directions), unapproved coaches. Returns no email. `q` = part of a name, any case. `specialty` / `available=true` apply to coaches only. Returns `{items, total, nextCursor}` (+ `specialties`: all specialties on offer, coaches tab only, for the filter chips); send `nextCursor` back as `cursor` for the next page (`null` = last page). Bad cursor -> 400. |
-| `GET /chats` | mobile user | My chats that have at least one message, newest first (max 50): `{id, other, lastMessageSequenceNumber, unreadCount, lastMessage}`. Hides chats with banned/deleted/blocked people. |
-| `POST /chats` `{userId}` | mobile user | Start or reopen the chat with someone (same chat both ways). 404 `USER_NOT_FOUND` for self/unknown/banned/staff/unapproved coach/blocked (a block looks like "missing"). |
+| `GET /people?kind=coaches\|members&q=&specialty=&available=&cursor=&limit=` | any logged-in mobile user | Hides yourself and banned/deleted accounts, unapproved coaches. Returns no email. `q` = part of a name, any case. `specialty` / `available=true` apply to coaches only. Returns `{items, total, nextCursor}` (+ `specialties`: all specialties on offer, coaches tab only, for the filter chips); send `nextCursor` back as `cursor` for the next page (`null` = last page). Bad cursor -> 400. |
+| `GET /chats` | mobile user | My chats, newest first (max 50). A direct chat shows once it has a message, a group from the moment it is created. Each item: `{id, type, title, other, description, memberCount, lastMessageSequenceNumber, unreadCount, lastMessage{senderName,...}, canSend}`. Chats with a BANNED person stay (read-only, `canSend: false`); only chats with a deleted account are left out. |
+| `POST /chats` `{userId}` | mobile user | Start or reopen the chat with someone (same chat both ways). 404 `USER_NOT_FOUND` for self/unknown/banned/staff/unapproved coach. |
+| `POST /chats/groups` `{title, description?, memberIds[]}` | mobile user | Create a group. The caller is added automatically; 3 to 6 people in total (`memberIds` has 2 to 5); at most ONE coach among them, the caller included (400 `GROUP_ONE_COACH_ONLY`); everybody must be someone you could chat with (404 `USER_NOT_FOUND` otherwise); 400 `CANNOT_ADD_SELF`. Pushes `chat:created` to every member. No media for now. |
+| `POST /chats/:id/members` `{memberIds[]}` | group creator | Add people to a group (1 to 5 ids). Only the creator (403 `NOT_GROUP_CREATOR`; 404 for someone not in the chat; 400 `NOT_A_GROUP` for a direct chat). Same rules as creating, re-checked inside ONE transaction that locks the chat row (`SELECT ... FOR UPDATE`), so two adds at once cannot pass 6 people or two coaches: 400 `GROUP_FULL`, `GROUP_ONE_COACH_ONLY` (a banned coach still in the group counts), `ALREADY_IN_GROUP`, `CANNOT_ADD_SELF`, 404 `USER_NOT_FOUND`. A new member starts with everything marked read (their `last_read_sequence_number` = the chat's last number) but can read the earlier history. Pushes `chat:created` to the new people and `chat:updated` to those already in it. Returns the group detail. |
+| `DELETE /chats/:id` | group creator | Delete a group for everybody: the chat, its members and ALL its messages (cascade). Permanent. Audited in the same transaction (`chat.delete_group`, metadata title + memberCount). Pushes `chat:deleted` to every member. 400 `NOT_A_GROUP` for direct chats. |
+| `GET /chats/:id` | chat member | The chat with its people: `{...summary, members[{id,name,role,isBanned}], createdById}` (the group info screen). |
 | `GET /chats/:id/messages?before=&after=&limit=` | chat member | Newest page by default; `before=N` older; `after=N` newer (catch-up). Oldest first. Also `lastMessageSequenceNumber`, `otherLastReadSequenceNumber`, `hasMore`. Non-member -> 404. |
 | `POST /chats/:id/messages` `{clientMessageId, body}` | chat member | Saves a message (1-2000 chars, trimmed). **Idempotent**: same `clientMessageId` returns the first message with `duplicate:true`. 403 `CANNOT_MESSAGE` if blocked/banned recipient. |
 | `POST /chats/:id/read` `{upToSequenceNumber}` | chat member | "I have seen up to N". Only moves forward, capped at the newest message. |
@@ -465,7 +472,11 @@ Rate limit: 120 req/min per IP globally, **10/min on login/register/refresh** (H
 - **"Seen" is one number per member:** sending a message moves the sender's own `last_read_sequence_number` to it; opening a chat sends `POST /chats/:id/read` which does `UPDATE chat_members SET last_read_sequence_number = N WHERE ... AND last_read_sequence_number < N` (one row, and nothing is written when it would not move forward). `unreadCount = last_message_sequence_number - my last_read_sequence_number`. "Seen" on my message = the other member's number >= its `sequence_number`. For a group the same numbers answer "seen by whom" (`>= N`) and "seen by all" (`MIN`).
 - **Privacy:** only members of a chat can read it (others get 404, not 403). Blocks hide the chat and stop sending; banned or deleted people are hidden.
 - **Mobile:** `Messages` (list, unread badge, reloads when the server pushes a change), `Chat` (inverted list, bubbles, "Sending… / Not sent, tap to retry / Sent / Seen", loads older on scroll up, shows pushed messages live), `useChat` hook, `chatApi`. The chat opens as a layer over the tabs (from a Messages row or the chat button in People). Message numbers (`after=N`) are the catch-up cursor.
-- **Not built yet (Phase 7 remainder):** sending through the socket instead of REST, a Redis adapter for several API servers, offline outbox that survives app restarts, typing, images, push notifications, day separators and the offline banner. The REST endpoints stay: they are also the catch-up path after a reconnect.
+- **Group chats (built 2026-10-28):** `POST /chats/groups` creates a `GROUP` chat: a name (1-60), an optional description (up to 300), 3 to 6 people in total including the creator, **at most one coach** (the creator counts: a coach who creates a group cannot add another coach). No media for now. The rules are checked in `ChatService.createGroup` (and again in `addMembers`, inside one transaction that locks the chat row, so two simultaneous adds cannot break the size or the one-coach rule). The group shows in every member's Messages list at once (`last_message_at` is set at creation) and a `chat:created` event reloads the list on their phones. In the chat, other people's names appear above their bubbles (once per run), "Seen by all" means everybody still active has read it, and the header opens Group info (description and people, coach first). The Call button says group calls are coming soon (6 people = 1 caller + 1 coach + up to 4 members, the same size as the planned group call). Phone side: `screens/home/newGroup/` (picker with Members/Coaches tabs; rows that would break a rule are greyed out and say why, rules in `groupRules.ts`) and `screens/home/groupInfo/`.
+- **Blocking was removed (2026-10-28):** the `user_blocks` table, the Prisma model and every check in People and chat are gone (nothing could create a block and the app never offered it). A ban is the only way an account is cut off, and it is an admin decision.
+- **Add people and delete group (built 2026-10-28, creator only):** Group info shows "Add people" (hidden at 6 people) and "Delete group" (confirm dialog) when `detail.canManage` is true. Add people is the same picker as New group (`usePeoplePicker` + `PickerParts`), with people already in the group greyed out ("Already in the group") and the room left = 6 minus the current count (`groupRules.ts`, optional `ExistingGroup`). Live updates are handled once, in `useUnreadTotal` (mounted by Main): `chat:updated` reloads the list and that group's info; `chat:deleted` removes it from the cache, and if I am inside it sends me to the tab bar with "This group was deleted.". The person who deleted already cleaned up, so they get "Group deleted." only (`navigation.isFocused()` guards the second pop: the push can arrive before the HTTP answer). The chat header's "N people" comes from the route params when the chat opened, so it is not live.
+- **Coach sign-up and approval (built 2026-10-29).** The flow: the coach fills the form in the app (Create account -> "Are you a coach? Apply here") -> `POST /auth/register-coach` -> the app asks for the 6-digit email code (same screen as members) -> the "Application received" screen -> an admin sees the application in Users & coaches (tag **Pending approval**, **Unverified** until the code is typed; Details shows date of birth, phone, specialties and bio) -> Approve -> the coach gets an email -> they sign in and appear in People. **The gate** lives in `SessionAuthService.authenticate`: a coach without `is_approved` gets 403 `COACH_PENDING_APPROVAL` on every route except those marked `@AllowPendingCoach()` (`/auth/me`, send-code, verify-email, logout; refresh is public), and cannot open the live socket. It reads the database row, so approval (or a ban) applies on the very next request with the token the coach already holds. The app shows `PendingApproval` when `user.pendingApproval` is true (`PublicUser.pendingApproval = role COACH and not approved`) and re-checks `/auth/me` on "Check again" and whenever the app returns to the front. Date of birth is typed as digits and dashes are added while typing (no date-picker library, so no native module). Phone numbers are never returned by People or chat.
+- **Not built yet (Phase 7 remainder):** leaving a group; sending through the socket instead of REST, a Redis adapter for several API servers, offline outbox that survives app restarts (planned in 5.11), typing, images, push notifications, day separators. The REST endpoints stay: they are also the catch-up path after a reconnect.
 
 ### 5.10 Real-time (Socket.IO)
 **Idea:** the app used to ask "anything new?" every 3-5 seconds. Now the server PUSHES a small event when something changes. Sending and reading stay normal REST calls (tested, retryable, idempotent); the socket only carries server-to-app notifications. An event just says "something changed": the app can always fetch the truth with REST, so a lost event never loses a message.
@@ -473,11 +484,11 @@ Rate limit: 120 req/min per IP globally, **10/min on login/register/refresh** (H
 **Pieces and where they live**
 | Piece | File | Job |
 |---|---|---|
-| Event names and payload types | `packages/shared/src/realtime.ts` | `message:new` `{chatId, message}` and `chat:read` `{chatId, userId, lastReadSequenceNumber}`. One contract for API and app. |
+| Event names and payload types | `packages/shared/src/realtime.ts` | `message:new` `{chatId, message}`, `chat:read` `{chatId, userId, lastReadSequenceNumber}`, and `chat:created` / `chat:updated` / `chat:deleted` `{chatId}` (a group appeared, its people changed, it was deleted). One contract for API and app. |
 | "Is this token good right now?" | `apps/api/src/auth/session-auth.service.ts` | The checks that used to live in the guard (signature, audience, session revoked or expired, user banned or deleted). Used by BOTH HTTP and sockets. |
 | The door | `apps/api/src/realtime/realtime.gateway.ts` | Socket.IO on the same port as HTTP. Middleware checks the handshake token before accepting; an accepted socket joins its room `user:<id>`. |
 | The only API other code uses | `apps/api/src/realtime/realtime.service.ts` | `emitToUsers(userIds, event, payload)` and `disconnectUser(userId)`. Chat, ban and password reset call these; they never touch Socket.IO. |
-| Pushes | `chat.service.ts` | After the transaction commits: `message:new` to every member (not for retries), `chat:read` to every member (only when the number really moved forward). |
+| Pushes | `chat.service.ts` | After the transaction commits: `message:new` to every member (not for retries), `chat:read` to every member (only when the number really moved forward), and for groups `chat:created` (new members), `chat:updated` (members already in it) and `chat:deleted` (every member). |
 | Kicks | `ban.service.ts`, `password-reset.service.ts`, `auth.service.ts` | After the commit: ban and password reset call `disconnectUser` (all of the user's devices); logout, stolen-refresh-token detection and a same-device re-login call `disconnectSession` (only that login's socket, via the room `session:<id>`). |
 | The connection | `apps/mobile/src/service/socket/socket.ts` | One shared socket. Token comes from the auth store on every (re)connect; `INVALID_TOKEN` -> refresh and retry; session-ended codes -> sign out; a server hang-up is answered by knocking again. |
 | Open and close | `apps/mobile/src/navigations/RootStack.tsx` | Connected exactly while `status === 'signedIn'`; reconnects when the app returns to the foreground. |
@@ -489,6 +500,31 @@ Rate limit: 120 req/min per IP globally, **10/min on login/register/refresh** (H
 **Session ended while the app runs:** the server closes the socket (see Kicks). The app sees `disconnect` with reason `io server disconnect`, knocks again, and the handshake answers with a code: `ACCOUNT_BANNED` or `SESSION_REVOKED` signs the user out, `INVALID_TOKEN` refreshes the token and reconnects. A plain network error is retried by Socket.IO. Not covered: a session that merely reaches its inactivity `expires_at` keeps an already-open socket until the next reconnect.
 **Tests:** `apps/api/test/realtime.e2e-spec.ts` (real sockets: bad tokens refused, members get events and outsiders do not, retries push once, read pushes only on progress, a ban, a logout or a same-device re-login closes the right socket). Mobile tests play the server with `test-utils/socket.ts` (`fakeSocket.receive(...)`).
 **Limits:** iOS closes sockets in the background (catch-up on foreground covers it; push notifications are a later phase). One API instance only; several need `@socket.io/redis-adapter`.
+
+### 5.11 Connection banner, unread badge, and the offline outbox plan
+
+**Connection banner** (`CustomConnectionBanner`, shown in the chat under the header). `service/socket/socket.ts` writes the socket state into `connection.store` (`idle` / `connecting` / `connected` / `disconnected`); `useConnectionBanner` shows the banner only after the connection has been down for 2 s (so a quick reconnect when the app returns to the foreground does not flash it) and hides it the instant it is back. "connecting" and "disconnected" alternate while Socket.IO retries, so both count as "down" and the banner stays steady. Closing the socket on purpose (sign out) is `idle`, never a banner.
+
+**"Not sent. Tap to retry"** appears on a message when its send request FAILS (`deliver` in `useChat`). It is a different signal from the banner: the banner is about the live socket, the message mark is about that one REST request. Cases:
+- no internet, server down, or no answer within 15 s (`NETWORK_ERROR`, the common one)
+- server errors (500 and friends, e.g. during a deploy)
+- 403 `CANNOT_MESSAGE`: the other person in a direct chat was banned or deleted their account (the app then turns the chat read-only)
+- 404 `CHAT_NOT_FOUND`: you are not a member of that chat any more
+- 429: too many requests (the default limit is 120 per minute)
+- 400 / 409: bad input or a reused message id (should not happen from the app)
+It does NOT appear when only the socket is down but the internet works: the send is a normal request and goes through (the banner shows meanwhile). A session that ended (revoked or banned) signs the user out instead of marking the message. Tapping the message retries with the SAME `clientMessageId`, so even if the first attempt reached the server and only the answer was lost, nothing is saved twice.
+
+**Unread badge** on the Messages tab (sum of every chat's `unreadCount`, "99+" above 99). `Main` (the tab bar screen, mounted on every tab and while a chat is open) calls `useUnreadTotal`: it owns the shared `['chats']` query and patches it from socket events with the pure helpers in `screens/home/messages/chatsCache.ts` (`message:new` -> preview, unread +1 and move to top; my own `chat:read` -> unread down), with no request. It reloads only when it cannot be sure (a missing message number, a chat it has not seen), when the socket reconnects and when the app returns to the foreground. A message in the chat that is open is not counted (`activeChat.store`), and when the open chat marks messages read, `useChat` patches the cache from the REST answer so the badge is right even with the socket down. The number covers the 50 most recent chats (the list's limit) and leaves out chats hidden because the other person is banned, deleted or blocked.
+
+**Offline outbox (planned, NOT built).** Goal (Gate 7): a phone sends 200 messages offline, closes and reopens the app, and they arrive once and in order. Today an unsent message lives in memory only.
+- *Storage:* SQLite via `@op-engineering/op-sqlite` (re-add it, `pod install`, pin the version; see 1.2). Table `outbox(seq INTEGER PRIMARY KEY AUTOINCREMENT, user_id, chat_id, client_message_id UNIQUE, body, created_at, status, attempts)`; `seq` is the send order.
+- *Send path:* typing Send first INSERTs the row (so it survives a crash), shows the bubble as "Sending…", then a single flusher sends rows one at a time, oldest first, per chat. Today's sends are parallel, which can reorder two quick messages: the flusher fixes that.
+- *Results:* success -> delete the row (the server's answer, or the pushed `message:new` with the same `clientMessageId`, both settle it); network error or 5xx or 429 -> keep the row, stop, retry with backoff (1 s doubling to 30 s) and also when the socket connects, the app returns to the foreground, or the chat opens; permanent 4xx (403 CANNOT_MESSAGE, 404) -> mark `failed` and show "Not sent. Tap to retry" or delete.
+- *Why nothing is duplicated:* the id is stored with the row; if the app dies after the server saved the message but before the row was deleted, the retry returns the first message (`duplicate: true`).
+- *Rate limit:* 200 queued sends exceed the 120 per minute default, so either raise the limit for `POST /chats/:id/messages` or add a batch endpoint, and treat 429 as "wait and retry" (honour `Retry-After`).
+- *Privacy:* rows carry `user_id` and are wiped on sign out, so one account's queue never sends as another.
+- *Loading:* open the database lazily when a chat opens or the flusher starts, not at app launch (startup time).
+- *Tests:* a fake in-memory database behind the same interface; "restart" = new module instance reading the same fake; assert order, once-only, backoff, 429 handling; plus an API test that 200 sequential sends with the same ids twice leave exactly 200 messages in order.
 
 ## 6. RBAC (role-based access control)
 
@@ -521,6 +557,12 @@ Defence in depth:
 Why it is immediate: the guard hits the database on every request, and sessions are revoked in the same transaction, so even a not-yet-expired access token is rejected on the next call (`401 SESSION_REVOKED`; with a surviving session it would be `403 ACCOUNT_BANNED`). Login and refresh also refuse. Unban clears `banned_at` but leaves old sessions dead: the user signs in again.
 
 Idempotent: banning twice does nothing extra (and writes one audit row). Reason must be one of a fixed list (matches the admin UI).
+
+**What a ban means for everyone else (decided 2026-10-28):**
+- The banned person **disappears from People** (so nobody can start a new chat with them) and from the admin's "approved coaches" use: banning is the only way to take a coach away (there is no "remove approval").
+- Their **chats stay in everybody's Messages list and the history stays readable**. In a direct chat nobody can write to them (`canSend: false`, 403 `CANNOT_MESSAGE`); the phone shows "<name> is no longer available. You can read this chat but not reply." instead of the text box. **Unban** reopens it.
+- In a **group** the other members carry on; the banned member stays in the people list marked "No longer available" and their old messages stay. A banned member is ignored when working out "Seen by all", so they cannot freeze it.
+- The banned person themself is signed out everywhere and cannot sign in.
 
 ---
 
@@ -559,7 +601,7 @@ src/
   constants/                 theme/ (COLORS, SPACING, RADIUS, TEXT, FONT), endpoints.ts (shared API_ROUTES), general.ts (API URL, shared constants)
   navigations/               RootStack.tsx (native stack, screens chosen by sign-in status), navigationRef.ts
   screens/<module>/<screen>/ <Screen>.tsx (thin UI) + hook/use<Screen>.tsx (all the logic)
-    auth/    signIn, register, forgotPassword, resetCode, newPassword, verifyEmail
+    auth/    signIn, register, registerCoach, pendingApproval, forgotPassword, resetCode, newPassword, verifyEmail
     system/  splash, offline
     home/    main (tab bar), people, messages, chat, calls, profile
   service/
@@ -600,6 +642,9 @@ Screens: `Splash` (green, determinate progress bar), `SignIn`, `Register`, `Cust
 - **Avatars:** the circle never shrinks in a crowded row (`flexShrink: 0`), its letters do not scale (`allowFontScaling={false}`), and initials are taken per character, not per UTF-16 unit, so an emoji is never cut in half (`initialsOf`).
 - **Safe area:** every tab uses `insets.top + 12` for its top padding (Profile had a fixed 76, wrong on other phones) and a 20-point side margin.
 - **Lists must not jump while searching or filtering (People):** (1) `refreshing` on a `FlatList` means "the user pulled down", NEVER "something is loading": on iOS the pull-to-refresh spinner pushes the whole list down, so `usePeople` keeps its own `pulling` flag; (2) while a new search loads, the old rows stay (`keepPreviousData`) and the list goes back to the top when the new rows arrive; (3) `items` is `useMemo`'d, `renderItem`/handlers are `useCallback`'d and `CustomPersonRow` is `memo`'d, so typing in the search box redraws no rows; (4) answers stay fresh 20 s (`staleTime`), so returning to a filter you just used shows it instantly with no background refetch. Found with a screen recording: `xcrun simctl io <device> recordVideo f.mp4`, then `ffmpeg -i f.mp4 -vf "fps=2,scale=230:-1,tile=6x3" sheet.png` to see motion that single screenshots miss; a temporary delay in the API call makes the loading state last long enough to see.
+- **Connection banner and unread badge:** see 5.11. A new screen that shows live data should read `connection.store` (never the socket directly) and keep shared lists in the React Query cache so other screens (the tab bar) can use them.
+- **Password fields:** `CustomTextInput` with `secureTextEntry` draws an eye button itself (starts hidden; tap to show, tap again to hide; each field has its own). Screens do not manage this. Labels "Show password" / "Hide password".
+- **Profile tab:** identity (avatar, name, email, role) comes from the sign-in so it shows instantly; the membership comes from `GET /auth/me` and is explained in words by `describeMembership` (`screens/home/profile/membership.ts`: Active / Free trial / Payment issue / Cancelled / Expired / No subscription / Coach account, with the date). Pull down to refresh (spinner only for a real pull). Sign out asks first (`Alert`) and is a red outline button (`CustomButton variant="danger"`). The dev "expire my token" link is `__DEV__` only.
 - **Email fields** (`keyboardType="email-address"`) turn off autocorrect and spell-check by default (`CustomTextInput`).
 - **Socket vs sign-out:** the server closes the socket on logout; the store flag `signingOut` stops the socket code from treating that as "your session ended" (it used to show that banner after a normal sign-out).
 
@@ -609,7 +654,8 @@ Screens: `Splash` (green, determinate progress bar), `SignIn`, `Register`, `Cust
 - **Development:** `pnpm dev` on port 3001; `next.config.ts` forwards `/api/*` to the backend (port 3000), so the browser sees one address. (Rewrites only exist in dev; static exports do not allow them.) TODO before deploy: make the backend answer under the path the built panel calls (e.g. serve the panel under `/panel` and keep API paths).
 - `src/lib/api.ts` (one place for requests, `ApiError` with backend codes), `src/lib/session.ts` (sign in/out, `useSession()`), `src/components/AdminShell.tsx` (sidebar + frame, redirects to Sign in when signed out), pages: `/login`, `/dashboard`.
 - **Temporary:** tokens are kept in page memory only (never localStorage), so a refresh signs you out. Next backend step: httpOnly cookie login + CSRF protection, then 2FA for ADMIN. Pages only use `session.ts`, so they won't change.
-- Sidebar items other than Dashboard are shown greyed ("Coming soon") until their pages exist.
+- Sidebar items without a page yet are shown greyed ("Coming soon"). Navigation uses Next's `Link` (client-side): a plain `<a>` reloads the page and, while the login lives only in memory, would sign the admin out.
+- **Users & coaches page** (`/users`, `lib/admin.ts` + `app/users/`): search (sent 300 ms after typing stops), role and status filters, "Load more" paging, **Approve / Remove approval** for coaches, **Ban / Unban** with a confirmation row (ban asks for a reason and an optional note). Admin sees the buttons; Support sees the list read-only (the server also answers 403 to a Support write). Each click sends ONE request, then the row is updated from the answer without reloading the list. A slow old answer never overwrites a newer one (request counter). A 401 (the 15-minute login ran out) signs you out. Flow: filters -> `GET /admin/users?...` -> rows; Approve -> `POST /admin/coaches/:id/approve` -> `{isApproved}` -> that row's pill changes -> the member app's `GET /people?kind=coaches` includes the coach on its next load. How coaches get created is still a database/seed step (no "create coach" form yet).
 
 ### 8d. App icon
 Source of truth: `apps/mobile/scripts/generate-icons.mjs` (draws the "C inside C" mark; run `pnpm icons` in `apps/mobile/`). It writes `apps/mobile/assets/app-icon.svg`, the iOS 1024 px icon (`AppIcon.appiconset`, no transparency; iOS rounds the corners) and Android legacy, round and adaptive icons (`mipmap-*`, `mipmap-anydpi-v26`, colors in `values/colors.xml`; mark kept inside the adaptive safe zone, also used as the Android 13 themed icon). Change the design in that script and re-run. Checked: iOS build shows it on the home screen; Android `mergeDebugResources` succeeds (not run on an emulator).
@@ -664,3 +710,12 @@ Phase 1 remaining: Google/Apple sign-in; change password (B4); admin cookie logi
 
 - **2026-10-27, mobile rendering pass (iPhone 17 Pro + iPhone SE, large text, dark mode):** fixed the empty strip above the keyboard in the chat (and the oversized gap under pinned buttons on auth screens), typing re-rendering the whole chat list (draft state moved into `Composer`, list memoised), emoji names giving a broken avatar glyph, Profile using a fixed top padding and a different side margin, the "session ended" banner after a normal sign-out (socket reacted to the logout), spell-check squiggles in email fields, and several layouts breaking at large system text (titles, tab bar, avatars, segment control, chips, buttons, Profile rows). Rules are in section 8b.1. Mobile 177 tests (new: avatar initials, socket error handling).
 - **2026-10-27, People list jump:** searching or tapping a specialty chip pushed the list down and back (the refresh spinner was tied to `isFetching`) and every keystroke redrew every row (new `items` array and `renderItem` each render). Fixed in `usePeople`/`People`/`CustomPersonRow` (rules in section 8b.1). Mobile 181 tests (4 new in People).
+- **2026-10-28, connection banner and unread badge:** chat shows "Connection lost. Reconnecting…" after 2 s without the live connection; the Messages tab shows the total unread count, kept live from socket events (pure helpers + one shared `['chats']` cache entry, no extra requests). Offline outbox planned in 5.11. Mobile 212 tests.
+- **2026-10-28, cleanup, password eye, Profile redesign:** audited the repo with four scripts (unused exports, files, dependencies, StyleSheet keys, theme tokens, API routes, env vars, class methods, Prisma fields, doc paths): everything else was already in use; removed only three needless `export` keywords. Password fields got a show/hide eye. Profile tab redesigned (plain-words membership, Sign out confirmation). Mobile 237 tests.
+- **2026-10-28, People tabs:** the Coaches / Members tabs no longer show a count (it changed with every search and filter); the "N coaches" line above the list remains. SIGTERM in the API log traced to my own cleanup killing the user's server by port; rule saved (stop only the pids I start).
+- **2026-10-28, admin: coach approval and user list:** `GET /admin/users`, `POST /admin/coaches/:id/approve` (audited), web page `/users` with Approve and Ban/Unban buttons, shared `escapeLike` helper (Prisma `contains` does not escape `%` and `_`). API 117 integration tests, web 19, shared 9.
+- **2026-10-28, admin panel layout:** the sidebar is now pinned to the window (it used to grow with the page and push the signed-in name off screen) and the Actions header is right-aligned. Found while reviewing: removing a coach's approval only hides them from the member directory; their sessions stay open and they can sign in again. Decision pending (see the open question in the chat).
+- **2026-10-28, groups, ban behaviour, no blocking:** migration `group_chats_drop_user_blocks` (adds `chats.description`, `chats.created_by_id`, group CHECKs; drops `user_blocks`, 0 rows). Group chats (create, info, names above bubbles, "Seen by all", one coach per group, 3 to 6 people), a banned person's chats stay readable but read-only, "Remove approval" removed from the admin panel and API (ban is the way to remove a coach), user blocking removed everywhere. API 136 integration tests, mobile 287, web 20, shared 13.
+- **2026-10-28, add people to a group and delete a group (creator only):** `POST /chats/:id/members` (one locked transaction re-checks 6 people and one coach), `DELETE /chats/:id` (audited, cascade), events `chat:updated` and `chat:deleted`, `ChatDetail.canManage`. Phone: shared people picker, Add people screen, Group info buttons, live handling of the new events. Found by running it on the phone: the delete push returned the creator to the tab bar before the HTTP answer, then the second "go back" raised "POP_TO_TOP was not handled"; fixed with an `isFocused()` check and a test. API 156 integration tests, mobile 312.
+- **2026-10-29, admin panel stays signed in:** the panel kept its tokens only in page memory and never renewed the 15-minute access token, so it signed the admin out after 15 minutes. `authedRequest` (web `lib/session.ts`) now renews it with the refresh token on the first 401 (one renewal shared by parallel requests; offline does not sign out) and repeats the request. A browser reload still signs out (decision: keep tokens in memory; the httpOnly-cookie login stays a later step).
+- **2026-10-29, coach sign-up, approval email, date of birth, admin tags:** migration `user_phone_date_of_birth` (`users.phone`, `users.date_of_birth`, CHECKs); `POST /auth/register-coach`; `COACH_PENDING_APPROVAL` gate; approval email; admin list returns `emailVerified`, `phone` (admins only), `dateOfBirth`, coach bio and specialties, filter `status=unverified`; web Users tab shows several tags per row (Banned / Pending approval / Unverified / Approved / Active) and a Details row; mobile: date of birth on Create account, Apply as a coach form, waiting screen. Verified on the phone: apply -> code screen -> waiting screen -> approve -> "Check again" enters the app. API 171 integration tests, mobile 363, web 29, shared 17.

@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { Prisma } from '../generated/prisma/client.js';
+import { escapeLike } from '../common/db/escape-like.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { PeopleQueryParsed } from '@coach-connect/shared';
 
@@ -9,7 +10,8 @@ export class PeopleService {
 
   /**
    * The People screen: everyone I am allowed to see, as coaches or as members.
-   * Hidden from the list: myself, banned or deleted accounts, and anyone I blocked or who blocked me.
+   * Hidden from the list: myself, and banned or deleted accounts (a banned person disappears from here, but the
+   * chats they were already in stay in Messages).
    * Coaches also need to be approved by an Admin.
    * Deliberately NOT returned: email, subscription, anything private (decision D9).
    */
@@ -21,9 +23,6 @@ export class PeopleService {
         id: { not: me },
         bannedAt: null,
         deletedAt: null,
-        // "I blocked them" and "they blocked me" both hide the person.
-        blocksReceived: { none: { blockerId: me } },
-        blocksMade: { none: { blockedId: me } },
       },
     ];
     if (isCoaches) {
@@ -111,6 +110,3 @@ function decodeCursor(cursor: string): { name: string; id: string } {
   }
   throw new BadRequestException('Invalid cursor.');
 }
-
-/** In LIKE patterns % and _ are wildcards; a backslash in front makes them literal. */
-const escapeLike = (text: string) => text.replace(/[\\%_]/g, '\\$&');

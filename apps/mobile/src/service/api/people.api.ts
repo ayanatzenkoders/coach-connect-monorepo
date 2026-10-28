@@ -4,7 +4,7 @@ import type { PeoplePage } from '@coach-connect/shared/types';
 
 export type { PeoplePage, Person } from '@coach-connect/shared/types';
 
-export interface PeopleQuery {
+interface PeopleQuery {
   kind: 'coaches' | 'members';
   q?: string;
   specialty?: string;

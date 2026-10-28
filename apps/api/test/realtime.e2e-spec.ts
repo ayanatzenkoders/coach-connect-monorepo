@@ -82,6 +82,68 @@ describe('realtime (sockets)', () => {
     expect(forCara).toHaveLength(0); // privacy: only members get the event
   });
 
+  it('pushes "chat:created" to every member of a new group (and nobody else)', async () => {
+    const { benToken, annToken, ann, ben, cara } = await setup();
+    const dan = await seedUser(prisma, 'dan@x.com', 'MEMBER', 'Dan');
+    const danToken = await tokenOf('dan@x.com');
+    const danSocket = await connect(danToken);
+    const forAnn = record<{ chatId: string }>(ann, SOCKET_EVENTS.chatCreated);
+    const forBen = record<{ chatId: string }>(ben, SOCKET_EVENTS.chatCreated);
+    const forCara = record<{ chatId: string }>(cara, SOCKET_EVENTS.chatCreated);
+    const forDan = record<{ chatId: string }>(danSocket, SOCKET_EVENTS.chatCreated);
+
+    // Ben creates a group with Dan and Ann; Cara is not in it.
+    const annUser = await prisma.user.findFirstOrThrow({ where: { email: 'ann@x.com' } });
+    const created = await api(app).post('/chats/groups').set(bearer(benToken)).send({ title: 'Live group', memberIds: [annUser.id, dan.id] });
+    await until(() => forAnn.length > 0 && forBen.length > 0 && forDan.length > 0);
+    await settle();
+
+    expect(created.status).toBe(200);
+    for (const seen of [forAnn, forBen, forDan]) expect(seen).toEqual([{ chatId: created.body.id }]);
+    expect(forCara).toHaveLength(0);
+    expect(annToken).toBeTruthy();
+  });
+
+  it('pushes "chat:created" to a person added to a group, "chat:updated" to the people already in it, and nothing to outsiders', async () => {
+    const { benToken, ann, ben, cara } = await setup();
+    const dan = await seedUser(prisma, 'dan@x.com', 'MEMBER', 'Dan');
+    const eve = await seedUser(prisma, 'eve@x.com', 'MEMBER', 'Eve');
+    const danSocket = await connect(await tokenOf('dan@x.com'));
+    const eveSocket = await connect(await tokenOf('eve@x.com'));
+    const annUser = await prisma.user.findFirstOrThrow({ where: { email: 'ann@x.com' } });
+    const caraUser = await prisma.user.findFirstOrThrow({ where: { email: 'cara@x.com' } });
+    const made = await api(app).post('/chats/groups').set(bearer(benToken)).send({ title: 'Live group', memberIds: [annUser.id, caraUser.id] });
+
+    const created = { ann: record(ann, SOCKET_EVENTS.chatCreated), dan: record(danSocket, SOCKET_EVENTS.chatCreated), eve: record(eveSocket, SOCKET_EVENTS.chatCreated) };
+    const updated = { ann: record(ann, SOCKET_EVENTS.chatUpdated), ben: record(ben, SOCKET_EVENTS.chatUpdated), cara: record(cara, SOCKET_EVENTS.chatUpdated), dan: record(danSocket, SOCKET_EVENTS.chatUpdated) };
+    await settle(); // the events of creating the group are over
+    created.ann.length = 0;
+    const added = await api(app).post(`/chats/${made.body.id}/members`).set(bearer(benToken)).send({ memberIds: [dan.id] });
+    await until(() => created.dan.length > 0 && updated.ann.length > 0 && updated.ben.length > 0 && updated.cara.length > 0);
+    await settle();
+
+    expect(added.status).toBe(200);
+    expect(created.dan).toEqual([{ chatId: made.body.id }]);
+    for (const seen of [updated.ann, updated.ben, updated.cara]) expect(seen).toEqual([{ chatId: made.body.id }]);
+    expect(updated.dan).toHaveLength(0); // the new person gets "created", not "updated"
+    expect(created.ann).toHaveLength(0);
+    expect(created.eve).toHaveLength(0); // an outsider hears nothing
+    expect(eve.id).toBeTruthy();
+  });
+
+  it('pushes "chat:deleted" to every member when the creator deletes the group', async () => {
+    const { benToken, ann, ben, cara } = await setup();
+    const annUser = await prisma.user.findFirstOrThrow({ where: { email: 'ann@x.com' } });
+    const caraUser = await prisma.user.findFirstOrThrow({ where: { email: 'cara@x.com' } });
+    const made = await api(app).post('/chats/groups').set(bearer(benToken)).send({ title: 'Short lived', memberIds: [annUser.id, caraUser.id] });
+    const deleted = [record(ann, SOCKET_EVENTS.chatDeleted), record(ben, SOCKET_EVENTS.chatDeleted), record(cara, SOCKET_EVENTS.chatDeleted)];
+    const res = await api(app).delete(`/chats/${made.body.id}`).set(bearer(benToken));
+    await until(() => deleted.every((d) => d.length > 0));
+    await settle();
+    expect(res.status).toBe(200);
+    for (const seen of deleted) expect(seen).toEqual([{ chatId: made.body.id }]);
+  });
+
   it('does not push again when the same message is retried', async () => {
     const { chatId, annToken, ben } = await setup();
     const forBen = record(ben, SOCKET_EVENTS.messageNew);

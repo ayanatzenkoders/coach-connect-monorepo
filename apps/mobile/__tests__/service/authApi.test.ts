@@ -14,9 +14,15 @@ describe('authApi', () => {
   });
 
   it('register posts name too', async () => {
-    const input = { email: 'a@b.co', password: 'pw', name: 'Ana', deviceId: 'device-12345678' };
+    const input = { email: 'a@b.co', password: 'pw', name: 'Ana', dateOfBirth: '1990-05-17', deviceId: 'device-12345678' };
     await authApi.register(input);
     expect(call).toHaveBeenCalledWith('/auth/register', { method: 'POST', body: input });
+  });
+
+  it('registerCoach posts the application to its own route', async () => {
+    const input = { email: 'c@b.co', password: 'pw', name: 'Carl', dateOfBirth: '1985-03-09', phone: '+49 170 1234567', bio: 'I help people with career talks.', specialties: ['Burnout'], deviceId: 'device-12345678' };
+    await authApi.registerCoach(input);
+    expect(call).toHaveBeenCalledWith('/auth/register-coach', { method: 'POST', body: input });
   });
 
   it('refresh sends only the refresh token, without an access token', async () => {

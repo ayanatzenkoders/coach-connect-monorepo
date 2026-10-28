@@ -84,6 +84,10 @@ model User {
   /// null for social-login-only accounts (Google/Apple, added later).
   passwordHash    String?   @map("password_hash")
   name            String
+  /// Only admins ever see it (never members or other coaches). null for accounts made before it was collected.
+  phone           String?
+  /// Calendar day only, no time or time zone. null for accounts made before it was collected.
+  dateOfBirth     DateTime? @map("date_of_birth") @db.Date
   role            Role      @default(MEMBER)
   /// null = not banned; set = banned since then. Who banned and why is kept in audit_logs (action "user.ban").
   bannedAt        DateTime? @map("banned_at") @db.Timestamptz(3)
@@ -97,8 +101,7 @@ model User {
   coachProfile     CoachProfile?
   subscription     Subscription?
   verificationCodes VerificationCode[]
-  blocksMade        Block[]            @relation("Blocker")
-  blocksReceived    Block[]            @relation("Blocked")
+  chatsCreated      Chat[]             @relation("ChatCreator")
   chatMemberships   ChatMember[]
   messagesSent      Message[]
 
@@ -165,20 +168,6 @@ model Subscription {
   @@map("subscriptions")
 }
 
-/// "A has blocked B". Hidden from each other in People/search/calls/chat, in both directions.
-model Block {
-  blockerId String   @map("blocker_id") @db.Uuid
-  blockedId String   @map("blocked_id") @db.Uuid
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-
-  blocker User @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
-  blocked User @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
-
-  @@id([blockerId, blockedId]) // also stops duplicate blocks; serves "who did I block"
-  @@index([blockedId]) // reverse lookup: "who blocked me" (needed for the either-direction check)
-  @@map("user_blocks")
-}
-
 /// A short code we email to a user (verify email, reset password).
 /// We store only an HMAC of the code, never the code itself.
 model VerificationCode {
@@ -224,8 +213,12 @@ model Chat {
   /// DIRECT only: "<smaller user id>:<larger user id>". Unique, so two people can never have two
   /// chats; "A opens B" and "B opens A" find the same row. null for groups (CHECK, RAW).
   directKey String? @unique @map("direct_key")
-  /// GROUP only.
+  /// GROUP only. A group always has a title (CHECK, RAW).
   title String?
+  /// GROUP only. Optional, up to 300 characters (CHECK, RAW).
+  description String?
+  /// Who created the group (null for direct chats, or if that account was deleted).
+  createdById String? @map("created_by_id") @db.Uuid
   /// Number of the newest message. Each new message takes this + 1 (see ChatService.send).
   lastMessageSequenceNumber Int       @default(0) @map("last_message_sequence_number")
   /// null until the first message: empty chats stay out of the Messages list.
@@ -233,8 +226,9 @@ model Chat {
   createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt                 DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  members  ChatMember[]
-  messages Message[]
+  createdBy User?        @relation("ChatCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  members   ChatMember[]
+  messages  Message[]
 
   @@map("chats")
 }

@@ -1,4 +1,4 @@
-type Variant = 'primary' | 'outline';
+type Variant = 'primary' | 'outline' | 'danger';
 
 export interface CustomButtonProps {
   title: string;

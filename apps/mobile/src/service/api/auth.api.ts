@@ -15,8 +15,12 @@ interface DeviceInfo {
 export const authApi = {
   login: (input: DeviceInfo & { email: string; password: string }) => apiRequest<AuthResult>(API_ROUTES.auth.login, { method: 'POST', body: input }),
 
-  register: (input: DeviceInfo & { email: string; password: string; name: string }) =>
+  register: (input: DeviceInfo & { email: string; password: string; name: string; dateOfBirth: string }) =>
     apiRequest<AuthResult>(API_ROUTES.auth.register, { method: 'POST', body: input }),
+
+  /** A coach applies. The account exists but cannot be used until an admin approves it (the user comes back with `pendingApproval`). */
+  registerCoach: (input: DeviceInfo & { email: string; password: string; name: string; dateOfBirth: string; phone: string; bio: string; specialties: string[] }) =>
+    apiRequest<AuthResult>(API_ROUTES.auth.registerCoach, { method: 'POST', body: input }),
 
   /** Trades the refresh token for a NEW pair. The old refresh token must then be discarded. */
   refresh: (refreshToken: string) => apiRequest<AuthResult>(API_ROUTES.auth.refresh, { method: 'POST', body: { refreshToken } }),

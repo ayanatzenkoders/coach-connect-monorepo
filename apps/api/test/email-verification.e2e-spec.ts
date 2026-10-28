@@ -22,7 +22,7 @@ describe('Email verification', () => {
 
   /** Register a member and return their token plus the code that was "emailed". */
   async function signUp(email = 'ana@example.com') {
-    const res = await api(app).post('/auth/register').send({ email, password: PASSWORD, name: 'Ana', deviceId: 'device-aaaaaaaa' });
+    const res = await api(app).post('/auth/register').send({ email, password: PASSWORD, name: 'Ana', dateOfBirth: '1990-05-17', deviceId: 'device-aaaaaaaa' });
     const token: string = res.body.accessToken;
     const code = mailer.outbox.filter((m) => m.to === email).at(-1)?.text.match(/\b(\d{6})\b/)?.[1] ?? '';
     return { token, code, userId: res.body.user.id as string };

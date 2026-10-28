@@ -45,6 +45,16 @@ const Register: React.FC<Props> = ({ route }) => {
           textContentType="emailAddress"
           returnKeyType="next"
         />
+        <CustomTextInput
+          label="Date of birth"
+          value={s.dob}
+          onChangeText={s.onChangeDob}
+          error={s.errors.dob}
+          keyboardType="number-pad"
+          placeholder="YYYY-MM-DD"
+          maxLength={10}
+          returnKeyType="next"
+        />
         <View>
           <CustomTextInput
             label="Password"
@@ -67,6 +77,9 @@ const Register: React.FC<Props> = ({ route }) => {
           By continuing you agree to the <Text style={styles.legalLink}>Terms</Text> and <Text style={styles.legalLink}>Privacy Policy</Text>.
         </Text>
         <CustomButton title="Create account" onPress={s.submit} loading={s.busy} />
+        <Pressable accessibilityRole="link" accessibilityLabel="Apply as a coach" onPress={s.goCoach} hitSlop={8} style={styles.coachLink}>
+          <Text style={TEXT.link}>Are you a coach? Apply here</Text>
+        </Pressable>
       </View>
     </CustomWrapper>
   );
@@ -80,6 +93,7 @@ const styles = StyleSheet.create({
   header: { gap: SPACING.sm },
   form: { gap: SPACING.lg },
   bottom: { marginTop: 'auto', gap: SPACING.lg },
+  coachLink: { alignSelf: 'center', paddingVertical: SPACING.sm },
   legal: { fontSize: 13, lineHeight: 20, color: COLORS.inkSecondary, textAlign: 'center' },
   legalLink: { fontWeight: '600', color: COLORS.ink },
 });

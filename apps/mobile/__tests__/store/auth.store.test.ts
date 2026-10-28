@@ -4,7 +4,7 @@ import { useAuthStore } from '@/src/store/auth.store';
 import { clearTokens, loadTokens, saveTokens } from '@/src/store/secureStorage';
 
 jest.mock('@/src/service/api/auth.api', () => ({
-  authApi: { login: jest.fn(), register: jest.fn(), refresh: jest.fn(), logout: jest.fn(), me: jest.fn() },
+  authApi: { login: jest.fn(), register: jest.fn(), registerCoach: jest.fn(), refresh: jest.fn(), logout: jest.fn(), me: jest.fn() },
 }));
 jest.mock('@/src/store/secureStorage', () => ({
   loadTokens: jest.fn(),
@@ -110,8 +110,8 @@ describe('signIn / register / signOut', () => {
 
   it('register creates the account and signs in', async () => {
     api.register.mockResolvedValue(result);
-    await state().register('Sara', 'sara@coachconnect.dev', 'pw');
-    expect(api.register).toHaveBeenCalledWith(expect.objectContaining({ name: 'Sara' }));
+    await state().register('Sara', 'sara@coachconnect.dev', 'pw', '1990-05-17');
+    expect(api.register).toHaveBeenCalledWith(expect.objectContaining({ name: 'Sara', dateOfBirth: '1990-05-17' }));
     expect(state().status).toBe('signedIn');
   });
 
@@ -130,5 +130,41 @@ describe('signIn / register / signOut', () => {
     await state().signOut();
     expect(clearTokens).toHaveBeenCalled();
     expect(state().status).toBe('signedOut');
+  });
+});
+
+describe('coach applications', () => {
+  const application = { name: 'Carl', email: 'carl@x.com', password: 'Longenough1', dateOfBirth: '1985-03-09', phone: '+49 170 1234567', bio: 'I help people with career talks.', specialties: ['Burnout'] };
+  const pendingCoach = { ...user, role: 'COACH' as const, emailVerified: false, pendingApproval: true };
+
+  it('registerCoach sends the application with the device and signs in as a waiting coach', async () => {
+    api.registerCoach.mockResolvedValue({ ...result, user: pendingCoach });
+    await state().registerCoach(application);
+    expect(api.registerCoach).toHaveBeenCalledWith(expect.objectContaining({ ...application, deviceId: 'device-12345678' }));
+    expect(state().status).toBe('signedIn');
+    expect(state().user?.pendingApproval).toBe(true);
+  });
+
+  it('refreshUser picks up the approval', async () => {
+    useAuthStore.setState({ status: 'signedIn', user: { ...pendingCoach, emailVerified: true }, accessToken: 'a' });
+    api.me.mockResolvedValue({ ...user, role: 'COACH', emailVerified: true, pendingApproval: false, subscription: null, canCall: true });
+    await state().refreshUser();
+    expect(api.me).toHaveBeenCalledWith('a');
+    expect(state().user?.pendingApproval).toBe(false);
+  });
+
+  it('refreshUser renews an expired token once and tries again', async () => {
+    useAuthStore.setState({ status: 'signedIn', user: pendingCoach, accessToken: 'old' });
+    (loadTokens as jest.Mock).mockResolvedValue(saved);
+    api.refresh.mockResolvedValue({ ...result, user: pendingCoach });
+    api.me.mockRejectedValueOnce(apiError(401, 'INVALID_TOKEN')).mockResolvedValueOnce({ ...pendingCoach, emailVerified: true, pendingApproval: false, subscription: null, canCall: true });
+    await state().refreshUser();
+    expect(api.me).toHaveBeenLastCalledWith('new-a');
+    expect(state().user?.pendingApproval).toBe(false);
+  });
+
+  it('refreshUser does nothing when nobody is signed in', async () => {
+    await state().refreshUser();
+    expect(api.me).not.toHaveBeenCalled();
   });
 });

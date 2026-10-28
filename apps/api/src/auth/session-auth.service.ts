@@ -22,7 +22,7 @@ export class SessionAuthService {
   ) {}
 
   /** Returns who is asking, or throws an AppException whose `code` the app can switch on. */
-  async authenticate(token: string, routeAudience: RouteAudience): Promise<AuthUser> {
+  async authenticate(token: string, routeAudience: RouteAudience, options: { allowPending?: boolean } = {}): Promise<AuthUser> {
     let payload;
     try {
       payload = await this.tokens.verifyAccess(token);
@@ -43,7 +43,7 @@ export class SessionAuthService {
         audience: true,
         revokedAt: true,
         expiresAt: true,
-        user: { select: { id: true, role: true, bannedAt: true, deletedAt: true } },
+        user: { select: { id: true, role: true, bannedAt: true, deletedAt: true, coachProfile: { select: { approved: true } } } },
       },
     });
     if (!session || session.userId !== payload.sub || session.revokedAt) {
@@ -54,6 +54,12 @@ export class SessionAuthService {
     }
     if (session.user.deletedAt) throw new AppException(401, 'SESSION_REVOKED', 'Session ended. Please sign in again.');
     if (session.user.bannedAt) throw new AppException(403, 'ACCOUNT_BANNED', 'This account has been suspended.');
+
+    // A coach waits for an admin: until then they may only verify their email and sign out (see @AllowPendingCoach),
+    // and they never get the live connection. Judged from the database row, so approval (or a ban) applies at once.
+    if (session.user.role === 'COACH' && !session.user.coachProfile?.approved && !options.allowPending) {
+      throw new AppException(403, 'COACH_PENDING_APPROVAL', 'Your application is waiting for approval.');
+    }
 
     // Role comes from the database row, NOT from the token, so a role change applies at once.
     return { id: session.user.id, role: session.user.role, sessionId: payload.sid, audience: session.audience };

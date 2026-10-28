@@ -8,6 +8,12 @@ export const SOCKET_EVENTS = {
   messageNew: "message:new",
   /** Someone in one of my chats read up to a message number (drives "Seen" and unread badges). */
   chatRead: "chat:read",
+  /** I was added to a new chat (a group someone created): reload the chat list. */
+  chatCreated: "chat:created",
+  /** The people in one of my groups changed (someone was added): reload its info and the list. */
+  chatUpdated: "chat:updated",
+  /** A group I was in was deleted by its creator. */
+  chatDeleted: "chat:deleted",
 } as const;
 
 export interface MessageNewPayload {
@@ -21,3 +27,16 @@ export interface ChatReadPayload {
   userId: string;
   lastReadSequenceNumber: number;
 }
+
+export interface ChatCreatedPayload {
+  chatId: string;
+}
+
+export interface ChatUpdatedPayload {
+  chatId: string;
+}
+
+export interface ChatDeletedPayload {
+  chatId: string;
+}
+

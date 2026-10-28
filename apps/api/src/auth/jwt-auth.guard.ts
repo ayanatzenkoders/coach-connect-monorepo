@@ -2,7 +2,7 @@ import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AppException } from '../common/errors/app.exception.js';
 import type { AuthedRequest } from '../common/auth-user.js';
-import { AUDIENCE, IS_PUBLIC, type RouteAudience } from '../common/decorators/index.js';
+import { ALLOW_PENDING_COACH, AUDIENCE, IS_PUBLIC, type RouteAudience } from '../common/decorators/index.js';
 import { SessionAuthService } from './session-auth.service.js';
 
 /**
@@ -26,8 +26,10 @@ export class JwtAuthGuard implements CanActivate {
     const header = req.headers.authorization;
     if (!header?.startsWith('Bearer ')) throw new AppException(401, 'MISSING_TOKEN', 'Sign in required.');
 
+    const allowPending = this.reflector.getAllAndOverride<boolean>(ALLOW_PENDING_COACH, targets) ?? false;
+
     // Later code (@CurrentUser, RolesGuard) reads req.user.
-    req.user = await this.sessionAuth.authenticate(header.slice(7), routeAudience);
+    req.user = await this.sessionAuth.authenticate(header.slice(7), routeAudience, { allowPending });
     return true;
   }
 }

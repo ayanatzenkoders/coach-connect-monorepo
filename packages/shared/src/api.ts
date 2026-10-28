@@ -4,6 +4,7 @@ export const API_ROUTES = {
   health: "/health",
   auth: {
     register: "/auth/register",
+    registerCoach: "/auth/register-coach",
     login: "/auth/login",
     refresh: "/auth/refresh",
     logout: "/auth/logout",
@@ -16,13 +17,20 @@ export const API_ROUTES = {
   },
   admin: {
     login: "/admin/auth/login",
+    users: "/admin/users",
     user: "/admin/users/:id",
+    coachApprove: "/admin/coaches/:id/approve",
     ban: "/admin/users/:id/ban",
     unban: "/admin/users/:id/unban",
   },
   people: "/people",
   chat: {
     chats: "/chats",
+    groups: "/chats/groups",
+    /** GET = the chat with its people; DELETE = delete a group (its creator only). */
+    detail: "/chats/:id",
+    /** POST = add people to a group (its creator only). */
+    members: "/chats/:id/members",
     messages: "/chats/:id/messages",
     read: "/chats/:id/read",
   },

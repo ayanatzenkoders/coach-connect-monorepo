@@ -13,6 +13,23 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
+  /* Pinned to the window: it is exactly one screen tall and stays put while a long page scrolls.
+     Without this the sidebar grew as tall as the page and pushed the signed-in name (margin-top: auto) off the screen. */
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  align-self: flex-start;
+  overflow-y: auto;
+}
+
+/* On a narrow screen the sidebar sits above the page instead of beside it, so it must not take a whole screen. */
+@media (max-width: 720px) {
+  .sidebar {
+    position: static;
+    height: auto;
+    max-width: none;
+    align-self: stretch;
+  }
 }
 
 .brand {

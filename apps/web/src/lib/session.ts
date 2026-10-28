@@ -1,10 +1,14 @@
 import { useSyncExternalStore } from 'react';
 import { API_ROUTES } from '@coach-connect/shared/api';
 import type { AuthResult, User } from '@coach-connect/shared/types';
-import { apiRequest } from './api';
+import { ApiError, apiRequest } from './api';
 
 /**
  * Who is signed in to the panel.
+ *
+ * STAYING SIGNED IN: the access token lasts 15 minutes, so `authedRequest` below renews it with the refresh token
+ * the moment the backend answers 401 (once, shared by every request in flight), then repeats the request. The panel
+ * only signs you out when the refresh itself is refused (session revoked, banned, expired after days of nothing).
  *
  * TEMPORARY STORAGE: the tokens live only in this page's memory (never localStorage, which any
  * script on the page could read). So a browser refresh signs you out. The next backend step moves
@@ -57,6 +61,45 @@ export async function logout(): Promise<void> {
   current = null; // sign out on screen first, even if the server call fails
   emit();
   if (token) await apiRequest(API_ROUTES.auth.logout, { method: 'POST', accessToken: token }).catch(() => undefined);
+}
+
+/** One renewal at a time: the backend rotates the refresh token, so two parallel renewals would fight each other. */
+let renewing: Promise<void> | null = null;
+
+async function renew(): Promise<void> {
+  const session = current;
+  if (!session) throw new ApiError(401, 'NOT_SIGNED_IN', 'Please sign in.');
+  renewing ??= apiRequest<LoginResult>(API_ROUTES.auth.refresh, { method: 'POST', body: { refreshToken: session.refreshToken } })
+    .then((result) => {
+      if (current !== session) return; // signed out (or in again) while renewing: do not bring the old session back
+      current = { user: session.user, accessToken: result.accessToken, refreshToken: result.refreshToken };
+      emit();
+    })
+    .finally(() => {
+      renewing = null;
+    });
+  return renewing;
+}
+
+/**
+ * A request as the signed-in person. If the 15-minute token ran out (401), renew it and repeat the request once.
+ * If the renewal is refused too, sign out: the person goes back to the login page.
+ */
+export async function authedRequest<T>(path: string, options: { method?: 'GET' | 'POST'; body?: unknown } = {}): Promise<T> {
+  const token = current?.accessToken;
+  if (!token) throw new ApiError(401, 'NOT_SIGNED_IN', 'Please sign in.');
+  try {
+    return await apiRequest<T>(path, { ...options, accessToken: token });
+  } catch (e) {
+    if (!(e instanceof ApiError) || e.status !== 401 || e.code === 'NOT_SIGNED_IN') throw e;
+    try {
+      await renew();
+    } catch (renewError) {
+      if (renewError instanceof ApiError && renewError.status !== 0) void logout(); // refused: really signed out. Offline: stay, try again later
+      throw e;
+    }
+    return apiRequest<T>(path, { ...options, accessToken: current?.accessToken });
+  }
 }
 
 export function getSession(): Session | null {

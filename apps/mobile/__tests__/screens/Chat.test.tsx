@@ -2,10 +2,13 @@ import { FlatList } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import Chat from '@/src/screens/home/chat/Chat';
 import { mergeMessages } from '@/src/screens/home/chat/hook/useChat';
+import { chatMessage, chatSummary, groupSummary } from '../../test-utils/chat';
 import { fakeSocket } from '../../test-utils/socket';
 import { chatApi, ChatMessage, ChatSummary, MessagesPage } from '@/src/service/api/chat.api';
 import { ApiError } from '@/src/service/setup/apiClient';
+import { useActiveChatStore } from '@/src/store/activeChat.store';
 import { useAuthStore } from '@/src/store/auth.store';
+import { useConnectionStore } from '@/src/store/connection.store';
 import { allText, byLabel, clearToast, lastToast, navigationMock, press, render, resetNavigationMock, screenProps, typeInto } from '@/test-utils';
 
 jest.mock('react-native-keychain', () => ({}));
@@ -13,27 +16,14 @@ jest.mock('@/src/service/api/chat.api', () => ({ chatApi: { messages: jest.fn(),
 
 const api = chatApi as unknown as Record<'messages' | 'send' | 'markRead', jest.Mock>;
 const ME = 'me-id';
-const CHAT: ChatSummary = {
-  id: 'conv-1',
-  other: { id: 'amara-id', name: 'Amara Okafor', role: 'COACH' },
-  lastMessageSequenceNumber: 0,
-  unreadCount: 0,
-  lastMessageAt: null,
-  lastMessage: null,
-};
-const msg = (seq: number, senderId: string, body: string, clientMessageId = `cm-${seq}-12345`): ChatMessage => ({
-  id: `id-${seq}`,
-  sequenceNumber: seq,
-  senderId,
-  body,
-  clientMessageId,
-  createdAt: new Date().toISOString(),
-});
+const CHAT: ChatSummary = chatSummary({ id: 'conv-1', title: 'Amara Okafor', other: { id: 'amara-id', name: 'Amara Okafor', role: 'COACH' } });
+const msg = (seq: number, senderId: string, body: string, clientMessageId = `cm-${seq}-12345`): ChatMessage => chatMessage(seq, senderId, body, { clientMessageId, senderName: senderId === ME ? 'Me' : 'Amara Okafor' });
 const page = (items: ChatMessage[], over: Partial<MessagesPage> = {}): MessagesPage => ({
   items,
   hasMore: false,
   lastMessageSequenceNumber: items.length ? items[items.length - 1]!.sequenceNumber : 0,
   otherLastReadSequenceNumber: 0,
+  canSend: true,
   ...over,
 });
 const open = async (first: MessagesPage) => {
@@ -154,6 +144,103 @@ describe('Chat screen', () => {
 
     expect(allText(tree).filter((x) => x === 'hello coach')).toHaveLength(1);
     expect(api.markRead).not.toHaveBeenCalled(); // my own message is never "read" by me
+  });
+
+  it('shows the connection banner when the live connection is down, and hides it when it is back', async () => {
+    const tree = await open(page([msg(1, 'amara-id', 'hi')]));
+    const banner = 'Connection lost. Reconnecting…';
+    await ReactTestRenderer.act(async () => { useConnectionStore.getState().set('connected'); });
+    expect(allText(tree)).not.toContain(banner);
+    await ReactTestRenderer.act(async () => { useConnectionStore.getState().set('disconnected'); });
+    await ReactTestRenderer.act(async () => { jest.advanceTimersByTime(2001); }); // the banner waits 2 s before showing
+    expect(allText(tree)).toContain(banner);
+    await ReactTestRenderer.act(async () => { useConnectionStore.getState().set('connected'); });
+    expect(allText(tree)).not.toContain(banner);
+  });
+
+  it('tells the app which chat is open (so its new messages are not counted as unread), and clears it on leaving', async () => {
+    const tree = await open(page([msg(1, 'amara-id', 'hi')]));
+    expect(useActiveChatStore.getState().chatId).toBe('conv-1');
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+    expect(useActiveChatStore.getState().chatId).toBeNull();
+  });
+
+  describe('group chats', () => {
+    const GROUP = groupSummary({ id: 'g1', title: 'Team Alpha', memberCount: 4 });
+    const named = (seq: number, senderId: string, body: string, senderName: string) => msg(seq, senderId, body, `cm-${seq}-12345`) && chatMessage(seq, senderId, body, { senderName, clientMessageId: `cm-${seq}-12345` });
+    const openGroup = async (first: MessagesPage) => {
+      api.messages.mockResolvedValueOnce(first);
+      return render(<Chat {...screenProps('Chat', { chat: GROUP })} />);
+    };
+
+    it('the header shows the group name and how many people are in it', async () => {
+      const tree = await openGroup(page([]));
+      expect(allText(tree)).toEqual(expect.arrayContaining(['Team Alpha', '4 people', 'Say hello to the group.']));
+    });
+
+    it('tapping the header opens the group info; a direct chat\'s header does nothing', async () => {
+      const tree = await openGroup(page([]));
+      await press(tree, 'Group info for Team Alpha');
+      expect(navigationMock.navigate).toHaveBeenCalledWith('GroupInfo', { chatId: 'g1', title: 'Team Alpha' });
+      const direct = await open(page([]));
+      expect(direct.root.findAll((n) => n.props.accessibilityLabel?.startsWith?.('Group info') && typeof n.props.onPress === 'function' && !n.props.disabled)).toEqual([]);
+    });
+
+    it('shows the sender\'s name above other people\'s messages, once per run, and never above mine', async () => {
+      const tree = await openGroup(
+        page([named(1, 'ben-id', 'hello', 'Ben Stone'), named(2, 'ben-id', 'anyone there?', 'Ben Stone'), named(3, 'amara-id', 'yes!', 'Amara Okafor'), named(4, ME, 'hi all', 'Me')]),
+      );
+      const t = allText(tree);
+      expect(t.filter((x) => x === 'Ben Stone')).toHaveLength(1); // two messages in a row, one name
+      expect(t).toContain('Amara Okafor');
+      expect(t.filter((x) => x === 'Me')).toHaveLength(0);
+    });
+
+    it('a direct chat never shows names above the bubbles', async () => {
+      const tree = await open(page([msg(1, 'amara-id', 'hi')]));
+      expect(allText(tree).filter((x) => x === 'Amara Okafor')).toHaveLength(1); // only the header
+    });
+
+    it('"Seen by all" once everybody still in the group has read my message', async () => {
+      const tree = await openGroup(page([named(1, ME, 'hello team', 'Me')], { otherLastReadSequenceNumber: 0 }));
+      expect(allText(tree)).toContain('Sent');
+      await push('chat:read', { chatId: 'g1', userId: 'ben-id', lastReadSequenceNumber: 1 });
+      expect(allText(tree)).toContain('Seen by all');
+    });
+
+    it('the Call button says group calls are coming soon', async () => {
+      const tree = await openGroup(page([]));
+      await press(tree, 'Audio call');
+      expect(lastToast()?.message).toBe('Group calls are coming soon.');
+    });
+  });
+
+  describe('after a ban the chat is read-only', () => {
+    it('shows the history but no text box, with a notice instead', async () => {
+      const tree = await open(page([msg(1, 'amara-id', 'last words')], { canSend: false }));
+      expect(allText(tree)).toContain('last words');
+      expect(allText(tree)).toContain('Amara Okafor is no longer available. You can read this chat but not reply.');
+      expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'Message' && typeof n.props.onChangeText === 'function')).toEqual([]);
+    });
+
+    it('when a send is refused (they were banned while the chat was open), the unsent text is dropped and the chat turns read-only', async () => {
+      const tree = await open(page([msg(1, 'amara-id', 'hi')]));
+      api.send.mockRejectedValue(new ApiError(403, 'CANNOT_MESSAGE', 'You cannot message this person.'));
+      await typeInto(tree, 'Message', 'are you there?');
+      await press(tree, 'Send message');
+      expect(allText(tree)).not.toContain('are you there?'); // no "Tap to retry" left behind
+      expect(allText(tree)).not.toContain('Not sent. Tap to retry');
+      expect(allText(tree).some((x) => x.includes('no longer available'))).toBe(true);
+      expect(lastToast()?.message).toBe('You cannot message this person.');
+    });
+
+    it('opens the text box again when the server says it is allowed (unbanned)', async () => {
+      const tree = await open(page([msg(1, 'amara-id', 'hi')], { canSend: false }));
+      expect(allText(tree).some((x) => x.includes('no longer available'))).toBe(true);
+      api.messages.mockResolvedValue(page([], { canSend: true }));
+      await push('connect', undefined); // the catch-up after a reconnect asks the server again
+      expect(allText(tree).some((x) => x.includes('no longer available'))).toBe(false);
+    });
   });
 
   it('ignores messages pushed for another chat', async () => {
