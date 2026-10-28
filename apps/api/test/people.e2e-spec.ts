@@ -1,0 +1,162 @@
+import type { INestApplication } from '@nestjs/common';
+import { createApp, resetDb, api, login, bearer, seedUser } from './helpers.js';
+import { PrismaService } from '../src/prisma/prisma.service.js';
+
+describe('GET /people', () => {
+  let app: INestApplication;
+  let prisma: PrismaService;
+  beforeAll(async () => {
+    app = await createApp();
+    prisma = app.get(PrismaService);
+  });
+  afterAll(() => app.close());
+  beforeEach(() => resetDb(prisma));
+
+  const coach = async (email: string, name: string, approved = true) => {
+    const u = await seedUser(prisma, email, 'COACH', name);
+    await prisma.coachProfile.create({ data: { userId: u.id, specialties: ['Career'], approved, available: true } });
+    return u;
+  };
+  const list = async (as: string, kind: string) => {
+    const tok = (await login(app, as)).body.accessToken;
+    return api(app).get(`/people?kind=${kind}`).set(bearer(tok));
+  };
+  const names = (res: { body: { items: { name: string }[] } }) => res.body.items.map((i) => i.name);
+
+  it('requires login', async () => {
+    expect((await api(app).get('/people?kind=coaches')).status).toBe(401);
+  });
+
+  it('lists approved coaches only, with their profile and no private data', async () => {
+    await seedUser(prisma, 'me@x.com', 'MEMBER', 'Me');
+    await coach('a@x.com', 'Amara');
+    await coach('p@x.com', 'Pending Coach', false);
+    const res = await list('me@x.com', 'coaches');
+    expect(res.status).toBe(200);
+    expect(names(res)).toEqual(['Amara']);
+    expect(res.body.items[0]).toMatchObject({ role: 'COACH', specialties: ['Career'], available: true });
+    expect(JSON.stringify(res.body)).not.toContain('@x.com'); // no emails
+    expect(res.body.total).toBe(1);
+  });
+
+  it('lists members but never myself, coaches, staff, banned or deleted people', async () => {
+    await seedUser(prisma, 'me@x.com', 'MEMBER', 'Me');
+    await seedUser(prisma, 'b@x.com', 'MEMBER', 'Bob');
+    await seedUser(prisma, 'c@x.com', 'MEMBER', 'Cara');
+    await seedUser(prisma, 'banned@x.com', 'MEMBER', 'Banned');
+    await seedUser(prisma, 'gone@x.com', 'MEMBER', 'Gone');
+    await seedUser(prisma, 'staff@x.com', 'ADMIN', 'Staff');
+    await coach('a@x.com', 'Amara');
+    await prisma.user.updateMany({ where: { email: 'banned@x.com' }, data: { bannedAt: new Date() } });
+    await prisma.user.updateMany({ where: { email: 'gone@x.com' }, data: { deletedAt: new Date() } });
+    expect(names(await list('me@x.com', 'members'))).toEqual(['Bob', 'Cara']);
+  });
+
+  it('a banned person disappears from People, and comes back when unbanned (their chats are unaffected, see chat tests)', async () => {
+    await seedUser(prisma, 'me@x.com', 'MEMBER', 'Me');
+    const bob = await seedUser(prisma, 'b@x.com', 'MEMBER', 'Bob');
+    await seedUser(prisma, 'd@x.com', 'MEMBER', 'Dan');
+    expect(names(await list('me@x.com', 'members'))).toEqual(['Bob', 'Dan']);
+    await prisma.user.update({ where: { id: bob.id }, data: { bannedAt: new Date() } });
+    expect(names(await list('me@x.com', 'members'))).toEqual(['Dan']);
+    await prisma.user.update({ where: { id: bob.id }, data: { bannedAt: null } });
+    expect(names(await list('me@x.com', 'members'))).toEqual(['Bob', 'Dan']);
+  });
+
+  it('a coach can open the People list too, and bad input is rejected', async () => {
+    await coach('a@x.com', 'Amara');
+    await seedUser(prisma, 'me@x.com', 'MEMBER', 'Me');
+    expect((await list('a@x.com', 'members')).status).toBe(200);
+    const tok = (await login(app, 'me@x.com')).body.accessToken;
+    expect((await api(app).get('/people?kind=robots').set(bearer(tok))).status).toBe(400);
+    expect((await api(app).get('/people?kind=coaches&limit=999').set(bearer(tok))).status).toBe(400);
+  });
+
+  it('respects limit but reports the full total', async () => {
+    await seedUser(prisma, 'me@x.com', 'MEMBER', 'Me');
+    for (const n of ['A', 'B', 'C']) await seedUser(prisma, `${n.toLowerCase()}@x.com`, 'MEMBER', n);
+    const tok = (await login(app, 'me@x.com')).body.accessToken;
+    const res = await api(app).get('/people?kind=members&limit=2').set(bearer(tok));
+    expect(res.body.items).toHaveLength(2);
+    expect(res.body.total).toBe(3);
+  });
+
+  describe('search, filters and paging', () => {
+    const get = async (as: string, qs: string) => {
+      const tok = (await login(app, as)).body.accessToken;
+      return api(app).get(`/people?${qs}`).set(bearer(tok));
+    };
+
+    it('finds names by any part, ignoring capitalisation', async () => {
+      await seedUser(prisma, 'me@x.com', 'MEMBER', 'Me');
+      await seedUser(prisma, 'a@x.com', 'MEMBER', 'Amara Singh');
+      await seedUser(prisma, 'b@x.com', 'MEMBER', 'Omar Khan');
+      await seedUser(prisma, 'c@x.com', 'MEMBER', 'Zoe Lee');
+      expect(names(await get('me@x.com', 'kind=members&q=MAR'))).toEqual(['Amara Singh', 'Omar Khan']);
+      expect(names(await get('me@x.com', 'kind=members&q=%20zoe%20'))).toEqual(['Zoe Lee']);
+      const none = await get('me@x.com', 'kind=members&q=nobody');
+      expect(none.body).toMatchObject({ items: [], total: 0, nextCursor: null });
+    });
+
+    it('treats % and _ in the search as plain characters', async () => {
+      await seedUser(prisma, 'me@x.com', 'MEMBER', 'Me');
+      await seedUser(prisma, 'a@x.com', 'MEMBER', 'Amara');
+      expect(names(await get('me@x.com', 'kind=members&q=%25'))).toEqual([]);
+      expect(names(await get('me@x.com', 'kind=members&q=_'))).toEqual([]);
+    });
+
+    it('filters coaches by specialty and by availability', async () => {
+      await seedUser(prisma, 'me@x.com', 'MEMBER', 'Me');
+      const a = await seedUser(prisma, 'a@x.com', 'COACH', 'Amara');
+      const b = await seedUser(prisma, 'b@x.com', 'COACH', 'Bruno');
+      await prisma.coachProfile.createMany({
+        data: [
+          { userId: a.id, specialties: ['Career', 'Stress'], approved: true, available: true },
+          { userId: b.id, specialties: ['Fitness'], approved: true, available: false },
+        ],
+      });
+      expect(names(await get('me@x.com', 'kind=coaches&specialty=Fitness'))).toEqual(['Bruno']);
+      expect(names(await get('me@x.com', 'kind=coaches&specialty=Stress'))).toEqual(['Amara']);
+      expect(names(await get('me@x.com', 'kind=coaches&available=true'))).toEqual(['Amara']);
+      expect(names(await get('me@x.com', 'kind=coaches&available=false'))).toEqual(['Amara', 'Bruno']);
+      expect(names(await get('me@x.com', 'kind=coaches&q=bru&available=true'))).toEqual([]);
+    });
+
+    it('lists the available specialties for the filter chips (coaches tab only)', async () => {
+      await seedUser(prisma, 'me@x.com', 'MEMBER', 'Me');
+      const a = await seedUser(prisma, 'a@x.com', 'COACH', 'Amara');
+      const p = await seedUser(prisma, 'p@x.com', 'COACH', 'Pending');
+      await prisma.coachProfile.createMany({
+        data: [
+          { userId: a.id, specialties: ['Stress', 'Career'], approved: true },
+          { userId: p.id, specialties: ['Hidden'], approved: false },
+        ],
+      });
+      expect((await get('me@x.com', 'kind=coaches')).body.specialties).toEqual(['Career', 'Stress']);
+      expect((await get('me@x.com', 'kind=members')).body.specialties).toBeUndefined();
+    });
+
+    it('pages with a cursor: no repeats, no gaps, then nextCursor is null', async () => {
+      await seedUser(prisma, 'me@x.com', 'MEMBER', 'Me');
+      for (const n of ['Ann', 'Ben', 'Cam', 'Dee', 'Eli']) await seedUser(prisma, `${n}@x.com`.toLowerCase(), 'MEMBER', n);
+      const seen: string[] = [];
+      let cursor: string | null = null;
+      let pages = 0;
+      do {
+        const res = await get('me@x.com', `kind=members&limit=2${cursor ? `&cursor=${cursor}` : ''}`);
+        expect(res.status).toBe(200);
+        expect(res.body.total).toBe(5); // total ignores the page
+        seen.push(...names(res));
+        cursor = res.body.nextCursor;
+        pages++;
+      } while (cursor);
+      expect(seen).toEqual(['Ann', 'Ben', 'Cam', 'Dee', 'Eli']);
+      expect(pages).toBe(3);
+    });
+
+    it('rejects a forged cursor', async () => {
+      await seedUser(prisma, 'me@x.com', 'MEMBER', 'Me');
+      expect((await get('me@x.com', 'kind=members&cursor=not-a-real-cursor')).status).toBe(400);
+    });
+  });
+});

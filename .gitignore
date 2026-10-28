@@ -6,9 +6,14 @@
 .env.*
 !.env.example
 
-# Node
+# Node / build output
 node_modules/
+.turbo/
 dist/
+build/
+.next/
+out/
+next-env.d.ts
 *.tsbuildinfo
 coverage/
 npm-debug.log*
@@ -17,8 +22,14 @@ npm-debug.log*
 .idea/
 .vscode/
 
-# Prisma client is generated (npm run prisma:generate), never committed
-backend/src/generated/
+# Prisma client is generated (pnpm --filter @coach-connect/api prisma:generate), never committed
+apps/api/src/generated/
 
 # Client documents and design exports stay local (PRD, UI export, plans). Only README.md and knowledge.md are shared.
 Requirement & Design/
+
+# React Native build output
+apps/mobile/ios/Pods/
+apps/mobile/ios/build/
+apps/mobile/android/build/
+apps/mobile/android/app/build/
