@@ -18,6 +18,7 @@ export const API_ROUTES = {
   admin: {
     login: "/admin/auth/login",
     users: "/admin/users",
+    stats: "/admin/stats",
     user: "/admin/users/:id",
     coachApprove: "/admin/coaches/:id/approve",
     ban: "/admin/users/:id/ban",
