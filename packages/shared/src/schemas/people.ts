@@ -18,3 +18,7 @@ export const PeopleQuerySchema = z.strictObject({
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
 export type PeopleQueryParsed = z.infer<typeof PeopleQuerySchema>;
+
+/** A coach switches "Available now" on or off. Only available coaches get a working Call button. */
+export const SetAvailabilityInputSchema = z.strictObject({ available: z.boolean() });
+export type SetAvailabilityInput = z.infer<typeof SetAvailabilityInputSchema>;

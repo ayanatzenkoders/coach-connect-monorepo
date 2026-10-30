@@ -41,7 +41,7 @@ describe('restore (app opens)', () => {
 
   it('stays signed in when the saved access token still works', async () => {
     (loadTokens as jest.Mock).mockResolvedValue(saved);
-    api.me.mockResolvedValue({ ...user, subscription: null, canCall: false });
+    api.me.mockResolvedValue({ ...user, subscription: null, canCall: false, isAvailable: null });
     await state().restore();
     expect(state().status).toBe('signedIn');
     expect(state().user?.email).toBe('sara@coachconnect.dev');
@@ -147,7 +147,7 @@ describe('coach applications', () => {
 
   it('refreshUser picks up the approval', async () => {
     useAuthStore.setState({ status: 'signedIn', user: { ...pendingCoach, emailVerified: true }, accessToken: 'a' });
-    api.me.mockResolvedValue({ ...user, role: 'COACH', emailVerified: true, pendingApproval: false, subscription: null, canCall: true });
+    api.me.mockResolvedValue({ ...user, role: 'COACH', emailVerified: true, pendingApproval: false, subscription: null, canCall: true, isAvailable: false });
     await state().refreshUser();
     expect(api.me).toHaveBeenCalledWith('a');
     expect(state().user?.pendingApproval).toBe(false);
@@ -157,7 +157,7 @@ describe('coach applications', () => {
     useAuthStore.setState({ status: 'signedIn', user: pendingCoach, accessToken: 'old' });
     (loadTokens as jest.Mock).mockResolvedValue(saved);
     api.refresh.mockResolvedValue({ ...result, user: pendingCoach });
-    api.me.mockRejectedValueOnce(apiError(401, 'INVALID_TOKEN')).mockResolvedValueOnce({ ...pendingCoach, emailVerified: true, pendingApproval: false, subscription: null, canCall: true });
+    api.me.mockRejectedValueOnce(apiError(401, 'INVALID_TOKEN')).mockResolvedValueOnce({ ...pendingCoach, emailVerified: true, pendingApproval: false, subscription: null, canCall: true, isAvailable: false });
     await state().refreshUser();
     expect(api.me).toHaveBeenLastCalledWith('new-a');
     expect(state().user?.pendingApproval).toBe(false);

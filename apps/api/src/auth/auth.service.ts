@@ -253,7 +253,7 @@ export class AuthService {
   async me(userId: string) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      include: { subscription: true, coachProfile: { select: { approved: true } } },
+      include: { subscription: true, coachProfile: { select: { approved: true, available: true } } },
     });
     return {
       ...toPublic(user),
@@ -262,6 +262,8 @@ export class AuthService {
         : null,
       // Coaches never need a subscription; members do.
       canCall: user.role === 'COACH' || hasActiveAccess(user.subscription),
+      // "Available now": only coaches have it.
+      isAvailable: user.role === 'COACH' ? (user.coachProfile?.available ?? false) : null,
     };
   }
 

@@ -24,6 +24,11 @@ export const API_ROUTES = {
     ban: "/admin/users/:id/ban",
     unban: "/admin/users/:id/unban",
   },
+  /** A coach managing their own profile. */
+  coaches: {
+    /** POST { available } = switch "Available now" on or off. */
+    availability: "/coaches/me/availability",
+  },
   people: "/people",
   chat: {
     chats: "/chats",

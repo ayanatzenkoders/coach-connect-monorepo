@@ -29,6 +29,8 @@ export interface Me extends User {
   subscription: { status: SubscriptionStatus; expiresAt: string | null } | null;
   /** True when this person may start calls right now (coaches always can). */
   canCall: boolean;
+  /** Coaches only: "Available now" is switched on. Null for everyone else. */
+  isAvailable: boolean | null;
 }
 
 /** Answer of "send me a code". */

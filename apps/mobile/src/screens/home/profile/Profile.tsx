@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CustomAvatar, CustomButton } from '@/src/components';
 import { COLORS, MAX_FONT_SCALE, RADIUS, SPACING, TEXT } from '@/src/constants';
@@ -62,6 +62,34 @@ const Profile: React.FC = () => {
           </View>
         )}
       </View>
+
+      {/* Coaches only: members find you under "Available now" and can only call you while this is on. */}
+      {isCoach && (
+        <>
+          <Text accessibilityRole="header" maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.sectionTitle}>
+            Availability
+          </Text>
+          <View style={styles.card}>
+            <View style={styles.row}>
+              <View style={styles.rowText}>
+                <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.rowTitle}>
+                  Available now
+                </Text>
+                <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.rowDetail}>
+                  {p.available ? 'Members can call you. You show as available in People.' : 'Members can message you but cannot call. Switch on when you are ready for calls.'}
+                </Text>
+              </View>
+              <Switch
+                accessibilityLabel="Available now"
+                value={p.available}
+                onValueChange={p.setAvailable}
+                disabled={!p.me || p.savingAvailability}
+                trackColor={{ true: COLORS.primary, false: COLORS.border }}
+              />
+            </View>
+          </View>
+        </>
+      )}
 
       <Text accessibilityRole="header" maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.sectionTitle}>
         Account

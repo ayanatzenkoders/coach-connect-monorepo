@@ -1,7 +1,9 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Alert } from 'react-native';
-import { authApi } from '@/src/service/api/auth.api';
+import { authApi, type Me } from '@/src/service/api/auth.api';
+import { coachApi } from '@/src/service/api/coach.api';
+import { showApiError } from '@/src/service/setup/handleApiError';
 import { withAuth } from '@/src/service/setup/withAuth';
 import { useAuthStore } from '@/src/store/auth.store';
 import { showToast } from '@/src/store/toast.store';
@@ -15,6 +17,9 @@ export const useProfile = () => {
   const signOut = useAuthStore((s) => s.signOut);
   // True only while the user is pulling down to refresh. Never "something is loading": that makes lists jump (see People).
   const [pulling, setPulling] = useState(false);
+
+  const queryClient = useQueryClient();
+  const [savingAvailability, setSavingAvailability] = useState(false);
 
   const query = useQuery({
     queryKey: ['me'],
@@ -34,8 +39,32 @@ export const useProfile = () => {
     }
   };
 
+  /**
+   * "Available now" on or off (coaches only). The switch moves at once (the cached `me` is updated first), the server
+   * saves it, and if that fails the switch jumps back and the reason is shown. People lists reload so members see it.
+   */
+  async function setAvailable(available: boolean) {
+    if (savingAvailability) return;
+    const before = queryClient.getQueryData<Me>(['me']);
+    queryClient.setQueryData<Me>(['me'], (current) => (current ? { ...current, isAvailable: available } : current));
+    setSavingAvailability(true);
+    try {
+      await withAuth((token) => coachApi.setAvailability(token, available));
+      queryClient.invalidateQueries({ queryKey: ['people'] });
+    } catch (e) {
+      queryClient.setQueryData(['me'], before);
+      showApiError(e);
+    } finally {
+      setSavingAvailability(false);
+    }
+  }
+
   return {
     me,
+    /** Coaches only: is "Available now" on? (false until the server has answered) */
+    available: me?.isAvailable ?? false,
+    savingAvailability,
+    setAvailable,
     name: me?.name ?? user?.name ?? '',
     email: me?.email ?? user?.email ?? '',
     role: me?.role ?? user?.role ?? 'MEMBER',
