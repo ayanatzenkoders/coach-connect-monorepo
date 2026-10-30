@@ -2,6 +2,7 @@ import { Alert, RefreshControl } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import Profile from '@/src/screens/home/profile/Profile';
 import { authApi } from '@/src/service/api/auth.api';
+import { coachApi } from '@/src/service/api/coach.api';
 import { ApiError } from '@/src/service/setup/apiClient';
 import { useAuthStore } from '@/src/store/auth.store';
 import { allText, clearToast, lastToast, press, render } from '@/test-utils';
@@ -9,11 +10,13 @@ import type { Me } from '@coach-connect/shared/types';
 
 jest.mock('react-native-keychain', () => ({}));
 jest.mock('@/src/service/api/auth.api', () => ({ authApi: { me: jest.fn() } }));
+jest.mock('@/src/service/api/coach.api', () => ({ coachApi: { setAvailability: jest.fn() } }));
 
 const me = authApi.me as jest.Mock;
+const setAvailability = coachApi.setAvailability as jest.Mock;
 const signOut = jest.fn();
 const user = { id: 'u1', email: 'sara@coachconnect.dev', name: 'Sara Malik', role: 'MEMBER' as const, emailVerified: true };
-const profile = (over: Partial<Me> = {}): Me => ({ ...user, subscription: { status: 'ACTIVE', expiresAt: '2026-11-27T10:00:00.000Z' }, canCall: true, ...over });
+const profile = (over: Partial<Me> = {}): Me => ({ ...user, subscription: { status: 'ACTIVE', expiresAt: '2026-11-27T10:00:00.000Z' }, canCall: true, isAvailable: null, ...over });
 const flush = () => ReactTestRenderer.act(async () => {});
 const open = async () => {
   const tree = await render(<Profile />);
@@ -26,6 +29,7 @@ const refresh = (tree: Tree) => tree.root.findByType(RefreshControl);
 let alert: jest.SpyInstance;
 beforeEach(() => {
   me.mockReset();
+  setAvailability.mockReset();
   signOut.mockReset();
   clearToast();
   alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
@@ -122,5 +126,59 @@ describe('Profile screen', () => {
     await press(tree, 'Dev: expire my access token');
     expect(useAuthStore.getState().accessToken).toBe('expired-on-purpose');
     expect(lastToast()?.message).toContain('Pull down to reload');
+  });
+});
+
+describe('Availability (coaches only)', () => {
+  const coachUser = { ...user, name: 'Carl Coach', role: 'COACH' as const };
+  const switchOf = (tree: Tree) => tree.root.find((n) => n.props.accessibilityLabel === 'Available now' && typeof n.props.onValueChange === 'function');
+  const openAsCoach = async (isAvailable: boolean) => {
+    useAuthStore.setState({ user: coachUser });
+    me.mockResolvedValue(profile({ ...coachUser, subscription: null, isAvailable }));
+    return open();
+  };
+
+  it('members see no availability section at all', async () => {
+    me.mockResolvedValue(profile());
+    const tree = await open();
+    expect(allText(tree)).not.toContain('Availability');
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'Available now').length).toBe(0);
+  });
+
+  it('a coach sees the switch in the state the server has, with a matching explanation', async () => {
+    const off = await openAsCoach(false);
+    expect(switchOf(off).props.value).toBe(false);
+    expect(allText(off).some((t) => t.startsWith('Members can message you but cannot call'))).toBe(true);
+    const on = await openAsCoach(true);
+    expect(switchOf(on).props.value).toBe(true);
+    expect(allText(on).some((t) => t.startsWith('Members can call you'))).toBe(true);
+  });
+
+  it('turning it on moves the switch at once, saves it, and tells the People lists to reload', async () => {
+    setAvailability.mockResolvedValue({ available: true });
+    const tree = await openAsCoach(false);
+    await ReactTestRenderer.act(async () => switchOf(tree).props.onValueChange(true));
+    expect(setAvailability).toHaveBeenCalledWith('token', true);
+    expect(switchOf(tree).props.value).toBe(true);
+  });
+
+  it('if the server refuses, the switch jumps back and the reason is shown', async () => {
+    setAvailability.mockRejectedValue(new ApiError(403, 'COACH_PENDING_APPROVAL', 'Your application is waiting for approval.'));
+    const tree = await openAsCoach(false);
+    await ReactTestRenderer.act(async () => switchOf(tree).props.onValueChange(true));
+    expect(switchOf(tree).props.value).toBe(false);
+    expect(lastToast()?.message).toBe('Your application is waiting for approval.');
+  });
+
+  it('the switch is locked while the change is being saved (no double taps)', async () => {
+    let finish: (v: { available: boolean }) => void = () => {};
+    setAvailability.mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+    const tree = await openAsCoach(false);
+    await ReactTestRenderer.act(async () => {
+      switchOf(tree).props.onValueChange(true);
+    });
+    expect(switchOf(tree).props.disabled).toBe(true);
+    await ReactTestRenderer.act(async () => finish({ available: true }));
+    expect(switchOf(tree).props.disabled).toBe(false);
   });
 });

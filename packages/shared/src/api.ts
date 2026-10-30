@@ -18,10 +18,16 @@ export const API_ROUTES = {
   admin: {
     login: "/admin/auth/login",
     users: "/admin/users",
+    stats: "/admin/stats",
     user: "/admin/users/:id",
     coachApprove: "/admin/coaches/:id/approve",
     ban: "/admin/users/:id/ban",
     unban: "/admin/users/:id/unban",
+  },
+  /** A coach managing their own profile. */
+  coaches: {
+    /** POST { available } = switch "Available now" on or off. */
+    availability: "/coaches/me/availability",
   },
   people: "/people",
   chat: {

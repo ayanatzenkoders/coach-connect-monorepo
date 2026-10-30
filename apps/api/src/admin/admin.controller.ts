@@ -9,6 +9,7 @@ import { Audience, CurrentUser, Public, Roles } from '../common/decorators/index
 import { AppException } from '../common/errors/app.exception.js';
 import { BanService } from '../moderation/ban.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { AdminStatsService } from './admin-stats.service.js';
 import { AdminUsersService } from './admin-users.service.js';
 import { CoachApprovalService } from './coach-approval.service.js';
 
@@ -25,6 +26,7 @@ export class AdminController {
     private readonly bans: BanService,
     private readonly prisma: PrismaService,
     private readonly users: AdminUsersService,
+    private readonly stats: AdminStatsService,
     private readonly approvals: CoachApprovalService,
   ) {}
 
@@ -32,6 +34,13 @@ export class AdminController {
   @Post(API_ROUTES.admin.login)
   login(@Body({ schema: LoginInputSchema }) dto: LoginInput) {
     return this.auth.login(dto, 'ADMIN');
+  }
+
+  /** READ-ONLY: the dashboard numbers. Support and Admin both allowed. */
+  @Roles('SUPPORT', 'ADMIN')
+  @Get(API_ROUTES.admin.stats)
+  getStats() {
+    return this.stats.get();
   }
 
   /** READ-ONLY: the user list (search, role and status filters, paging). Support and Admin both allowed. */

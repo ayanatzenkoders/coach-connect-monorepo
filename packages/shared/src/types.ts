@@ -29,6 +29,8 @@ export interface Me extends User {
   subscription: { status: SubscriptionStatus; expiresAt: string | null } | null;
   /** True when this person may start calls right now (coaches always can). */
   canCall: boolean;
+  /** Coaches only: "Available now" is switched on. Null for everyone else. */
+  isAvailable: boolean | null;
 }
 
 /** Answer of "send me a code". */
@@ -121,6 +123,34 @@ export interface MessagesPage {
    */
   otherLastReadSequenceNumber: number;
   canSend: boolean;
+}
+
+/** The numbers on the admin dashboard (GET /admin/stats). Staff accounts are not counted anywhere. */
+export interface AdminStats {
+  users: {
+    members: number;
+    /** Coaches an admin approved (members can find them). */
+    approvedCoaches: number;
+    /** Coaches who applied and wait for an admin. */
+    pendingCoaches: number;
+    /** Members and coaches who never typed the code from the verification email. */
+    unverified: number;
+    banned: number;
+  };
+  signups: {
+    last7Days: number;
+    /** The last 14 days, oldest first, every day present (0 when nobody signed up). "YYYY-MM-DD", UTC. */
+    daily: { date: string; count: number }[];
+  };
+  chats: {
+    direct: number;
+    group: number;
+    /** Chats that had at least one message in the last 7 days. */
+    active7Days: number;
+  };
+  messages: { last24Hours: number; last7Days: number };
+  /** The oldest applications first (up to 5), so the admin can approve in the order people applied. */
+  awaitingApproval: { id: string; name: string; email: string; createdAt: string }[];
 }
 
 /** One row of the admin user list. */

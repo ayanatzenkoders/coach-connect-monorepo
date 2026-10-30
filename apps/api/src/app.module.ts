@@ -9,6 +9,7 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
 import { RolesGuard } from './auth/roles.guard.js';
 import { ZodValidationPipe } from './common/pipes/zod-validation.pipe.js';
 import { validateEnv } from './config/env.js';
+import { CoachesModule } from './coaches/coaches.module.js';
 import { ChatModule } from './chat/chat.module.js';
 import { HealthModule } from './health/health.module.js';
 import { MailModule } from './mail/mail.module.js';
@@ -32,6 +33,7 @@ import { RealtimeModule } from './realtime/realtime.module.js';
     RealtimeModule,
     AdminModule,
     PeopleModule,
+    CoachesModule,
     ChatModule,
     HealthModule,
   ],
