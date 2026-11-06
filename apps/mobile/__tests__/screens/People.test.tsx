@@ -1,6 +1,7 @@
 import { FlatList } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import People from '@/src/screens/home/people/People';
+import { callApi } from '@/src/service/api/call.api';
 import { chatApi, ChatSummary } from '@/src/service/api/chat.api';
 import { chatSummary } from '../../test-utils/chat';
 import { peopleApi, PeoplePage } from '@/src/service/api/people.api';
@@ -11,6 +12,8 @@ import { allText, byLabel, clearToast, has, lastToast, navigationMock, press, re
 jest.mock('react-native-keychain', () => ({}));
 jest.mock('@/src/service/api/people.api', () => ({ peopleApi: { list: jest.fn() } }));
 jest.mock('@/src/service/api/chat.api', () => ({ chatApi: { open: jest.fn() } }));
+jest.mock('@/src/service/api/call.api', () => ({ callApi: { start: jest.fn() } }));
+jest.mock('@/src/service/call/callEngine', () => ({ connectToRoom: jest.fn(), leaveRoom: jest.fn(), setCamera: jest.fn(), setMicrophone: jest.fn(), setSpeaker: jest.fn(), videoTiles: () => [] }));
 
 const list = peopleApi.list as jest.Mock;
 const open = chatApi.open as jest.Mock;
@@ -32,6 +35,7 @@ beforeEach(() => {
   jest.useFakeTimers();
   list.mockReset();
   open.mockReset();
+  (callApi.start as jest.Mock).mockReset();
   clearToast();
   resetNavigationMock();
   useAuthStore.setState({ accessToken: 'token' });
@@ -60,11 +64,15 @@ describe('People screen', () => {
     for (const label of ['Filter: Available now', 'Filter: Burnout', 'Filter: Career transitions']) expect(has(tree, label)).toBe(true);
   });
 
-  it('disables Call for a coach who is not available; Call for an available one says "coming soon"', async () => {
+  it('disables Call for a coach who is not available; Call for an available one opens the chat and starts a voice call', async () => {
     const tree = await setup();
     expect(byLabel(tree, "Lena Fischer can't take calls right now").props.disabled).toBe(true);
+    open.mockResolvedValue(chatSummary({ id: 'conv-1', title: 'Amara Okafor', other: { id: 'c1', name: 'Amara Okafor', role: 'COACH' } }));
+    (callApi.start as jest.Mock).mockRejectedValue(new ApiError(409, 'COACH_UNAVAILABLE', 'This coach is not available for calls right now.'));
     await press(tree, 'Call Amara Okafor');
-    expect(lastToast()).toMatchObject({ message: 'Calling Amara Okafor is coming soon.', tone: 'info' });
+    expect(open).toHaveBeenCalledWith('token', 'c1');
+    expect(callApi.start).toHaveBeenCalledWith('token', { chatId: 'conv-1', video: false });
+    expect(lastToast()?.message).toBe('This coach is not available for calls right now.'); // the server's refusal is shown
   });
 
   it('the chat button opens (or creates) the chat and shows the Chat screen', async () => {

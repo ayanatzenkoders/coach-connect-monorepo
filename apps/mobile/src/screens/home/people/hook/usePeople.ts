@@ -3,9 +3,9 @@ import { keepPreviousData, useInfiniteQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { chatApi } from '@/src/service/api/chat.api';
 import { peopleApi, Person } from '@/src/service/api/people.api';
+import { useCallActions } from '@/src/service/call/useCallActions';
 import { showApiError } from '@/src/service/setup/handleApiError';
 import { withAuth } from '@/src/service/setup/withAuth';
-import { showToast } from '@/src/store/toast.store';
 import { useDebounced } from '@/src/utils/hooks/useDebounced';
 
 type PeopleKind = 'coaches' | 'members';
@@ -13,6 +13,7 @@ type PeopleKind = 'coaches' | 'members';
 /** Everything the People screen needs: the tab, search and filters, the list, paging and the row buttons. */
 export const usePeople = () => {
   const navigation = useNavigation();
+  const calls = useCallActions();
   const [kind, setKind] = useState<PeopleKind>('coaches');
   const [search, setSearch] = useState('');
   const [specialty, setSpecialty] = useState<string | undefined>();
@@ -72,7 +73,18 @@ export const usePeople = () => {
     },
     [navigation],
   );
-  const call = useCallback((person: Person) => showToast(`Calling ${person.name} is coming soon.`, 'info'), []);
+  /** The call button: open (or create) the direct chat with this person, then start a voice call in it. The server decides if it is allowed. */
+  const call = useCallback(
+    async (person: Person) => {
+      try {
+        const chat = await withAuth((token) => chatApi.open(token, person.id));
+        await calls.start(chat.id, false);
+      } catch (e) {
+        showApiError(e);
+      }
+    },
+    [calls],
+  );
 
   return {
     kind,

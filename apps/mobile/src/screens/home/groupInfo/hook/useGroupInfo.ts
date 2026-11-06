@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { Alert } from 'react-native';
 import { GROUP_MAX_MEMBERS } from '@/src/constants';
 import { chatApi } from '@/src/service/api/chat.api';
+import { useCallActions } from '@/src/service/call/useCallActions';
 import { removeChat } from '@/src/service/chats/chatsCache';
 import { patchChatsCache } from '@/src/service/chats/chatsQuery';
 import { showApiError } from '@/src/service/setup/handleApiError';
@@ -15,6 +16,7 @@ import { showToast } from '@/src/store/toast.store';
 export const useGroupInfo = (chatId: string) => {
   const navigation = useNavigation();
   const queryClient = useQueryClient();
+  const calls = useCallActions();
   const [deleting, setDeleting] = useState(false);
   const meId = useAuthStore((s) => s.user?.id ?? '');
   const query = useQuery({
@@ -68,7 +70,7 @@ export const useGroupInfo = (chatId: string) => {
     loading: query.isPending,
     failed: query.isError && !detail,
     reload: () => query.refetch(),
-    call: () => showToast('Group calls are coming soon.', 'info'),
+    call: () => calls.start(chatId, false),
     goBack: () => navigation.goBack(),
   };
 };

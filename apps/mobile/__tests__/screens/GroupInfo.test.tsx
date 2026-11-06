@@ -1,6 +1,7 @@
 import { Alert } from 'react-native';
 import { StackActions } from '@react-navigation/native';
 import GroupInfo from '@/src/screens/home/groupInfo/GroupInfo';
+import { callApi } from '@/src/service/api/call.api';
 import { chatApi, ChatDetail } from '@/src/service/api/chat.api';
 import { ApiError } from '@/src/service/setup/apiClient';
 import { useAuthStore } from '@/src/store/auth.store';
@@ -10,6 +11,8 @@ import { groupSummary } from '../../test-utils/chat';
 
 jest.mock('react-native-keychain', () => ({}));
 jest.mock('@/src/service/api/chat.api', () => ({ chatApi: { detail: jest.fn(), deleteGroup: jest.fn() } }));
+jest.mock('@/src/service/api/call.api', () => ({ callApi: { start: jest.fn() } }));
+jest.mock('@/src/service/call/callEngine', () => ({ connectToRoom: jest.fn(), leaveRoom: jest.fn(), setCamera: jest.fn(), setMicrophone: jest.fn(), setSpeaker: jest.fn(), videoTiles: () => [] }));
 
 const detail = chatApi.detail as jest.Mock;
 const deleteGroup = chatApi.deleteGroup as jest.Mock;
@@ -34,6 +37,7 @@ const open = async () => {
 beforeEach(() => {
   detail.mockReset();
   deleteGroup.mockReset();
+  (callApi.start as jest.Mock).mockReset();
   resetNavigationMock();
   clearToast();
   useAuthStore.setState({ accessToken: 'token', user: { id: ME, email: 'me@x.com', name: 'Me Myself', role: 'MEMBER', emailVerified: true } });
@@ -80,11 +84,11 @@ describe('Group info screen', () => {
     expect(allText(tree)).toContain('Weekly check-in');
   });
 
-  it('the Group call button says calls are coming soon; Back goes back', async () => {
+  it('the Group call button starts a group voice call; Back goes back', async () => {
     detail.mockResolvedValue(DETAIL);
     const tree = await open();
     await press(tree, 'Group call');
-    expect(lastToast()?.message).toBe('Group calls are coming soon.');
+    expect(callApi.start).toHaveBeenCalledWith('token', { chatId: 'g1', video: false });
     await press(tree, 'Back');
     expect(navigationMock.goBack).toHaveBeenCalled();
   });
