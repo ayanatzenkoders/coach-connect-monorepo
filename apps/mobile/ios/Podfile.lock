@@ -14,6 +14,34 @@ PODS:
   - hermes-engine (260318099.0.4):
     - hermes-engine/Pre-built (= 260318099.0.4)
   - hermes-engine/Pre-built (260318099.0.4)
+  - livekit-react-native (3.1.0):
+    - hermes-engine
+    - livekit-react-native-webrtc
+    - RCTRequired
+    - RCTTypeSafety
+    - React-bridging
+    - React-Core
+    - React-Core-prebuilt
+    - React-cxxstableapi
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
+  - livekit-react-native-webrtc (150.1.0):
+    - LiveKitWebRTC (= 150.7871.03)
+    - React-Core
+  - LiveKitWebRTC (150.7871.03)
   - RCT-Folly (2024.11.18.00):
     - RCT-Folly/Default (= 2024.11.18.00)
     - ReactNativeDependencies
@@ -1945,6 +1973,8 @@ DEPENDENCIES:
   - fmt (from `build/rndeps-facades/fmt`)
   - glog (from `build/rndeps-facades/glog`)
   - hermes-engine (from `../../../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)
+  - "livekit-react-native (from `../../../node_modules/@livekit/react-native`)"
+  - "livekit-react-native-webrtc (from `../../../node_modules/@livekit/react-native-webrtc`)"
   - RCT-Folly (from `build/rndeps-facades/RCT-Folly`)
   - RCTDeprecation (from `build/rncore-facades/RCTDeprecation`)
   - RCTRequired (from `build/rncore-facades/RCTRequired`)
@@ -2030,6 +2060,10 @@ DEPENDENCIES:
   - SocketRocket (from `build/rndeps-facades/SocketRocket`)
   - Yoga (from `build/rncore-facades/Yoga`)
 
+SPEC REPOS:
+  trunk:
+    - LiveKitWebRTC
+
 EXTERNAL SOURCES:
   boost:
     :path: build/rndeps-facades/boost
@@ -2046,6 +2080,10 @@ EXTERNAL SOURCES:
   hermes-engine:
     :podspec: "../../../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec"
     :tag: hermes-v260318099.0.2
+  livekit-react-native:
+    :path: "../../../node_modules/@livekit/react-native"
+  livekit-react-native-webrtc:
+    :path: "../../../node_modules/@livekit/react-native-webrtc"
   RCT-Folly:
     :path: build/rndeps-facades/RCT-Folly
   RCTDeprecation:
@@ -2221,6 +2259,9 @@ SPEC CHECKSUMS:
   fmt: ba0886e864ebb21d14c98b2e12e164b8002f5b93
   glog: 3cf7cb46f743c4bc758ae3e6d9c15bd1b4cfd6d4
   hermes-engine: 9458d26f2edf7c65ad37da5c067990c267ac807f
+  livekit-react-native: f6ff4a3746f8cd73a63a233410fbc54b8ba4a92a
+  livekit-react-native-webrtc: c239a23e695baefc7d32fe10ee44bcf08ff21755
+  LiveKitWebRTC: 3292b8df63708b5ba073a67f6dfa1756dd24d63b
   RCT-Folly: 82921e585c0400eda46fac1068297aa9dfb035e4
   RCTDeprecation: e134f2a2c096a6450f5fcbbe949531f913a2ff04
   RCTRequired: f1a68295837ee8f91e112ed1b5694d12e7ff1784

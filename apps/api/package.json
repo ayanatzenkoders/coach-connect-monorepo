@@ -40,6 +40,7 @@
     "@prisma/client": "7.10.1",
     "argon2": "^0.45.1",
     "dotenv": "^18.0.9",
+    "livekit-server-sdk": "^2.19.2",
     "nodemailer": "^10.2.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
