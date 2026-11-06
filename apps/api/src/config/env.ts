@@ -32,6 +32,11 @@ const EnvSchema = z.object({
   SMTP_PASS: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
 
+  // ───── Subscriptions ─────
+  /** false (default) = subscriptions are switched OFF for now: every member may start calls. Set true once billing is built;
+   *  the rules in subscriptions/subscription-access.ts are kept and apply again. */
+  SUBSCRIPTION_ENFORCED: envBoolean.default(false),
+
   // ───── Calls (LiveKit) ─────
   // Optional so the API still starts without them (chat, admin... keep working). Starting or joining a call then answers
   // 503 CALLS_NOT_CONFIGURED. Get all three from your LiveKit Cloud project (Settings > Keys). The secret stays on the server.

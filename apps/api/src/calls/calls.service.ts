@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import { CALL_RING_SECONDS, GROUP_MAX_MEMBERS, SOCKET_EVENTS } from '@coach-connect/shared';
 import type { CallInfo, CallSession, ChatCall, StartCallInput, StartCallResult } from '@coach-connect/shared';
@@ -6,7 +7,7 @@ import { AppException } from '../common/errors/app.exception.js';
 import type { CallEndReason, CallState, Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
-import { hasActiveAccess } from '../subscriptions/subscription-access.js';
+import { memberMayCall } from '../subscriptions/subscription-access.js';
 import { callInclude, toCallInfo } from './call-view.js';
 import { LiveKitService } from './livekit.service.js';
 
@@ -31,6 +32,7 @@ export class CallsService {
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeService,
     private readonly livekit: LiveKitService,
+    private readonly config: ConfigService,
   ) {}
 
   // ───────────────────────── start ─────────────────────────
@@ -55,8 +57,8 @@ export class CallsService {
       if (!chat) throw new AppException(404, 'CHAT_NOT_FOUND', 'Chat not found.');
       const self = chat.members.find((m) => m.userId === me)!.user;
 
-      // Members need a subscription to START a call. (A coach can always call. Answering needs nothing.)
-      if (self.role === 'MEMBER' && !hasActiveAccess(self.subscription)) {
+      // Members need a subscription to START a call (only while SUBSCRIPTION_ENFORCED is on; it is off for now). (A coach can always call. Answering needs nothing.)
+      if (self.role === 'MEMBER' && !memberMayCall(self.subscription, this.config.get('SUBSCRIPTION_ENFORCED') === true)) {
         throw new AppException(403, 'SUBSCRIPTION_REQUIRED', 'Subscribe to start calls.');
       }
 

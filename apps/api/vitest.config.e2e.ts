@@ -14,6 +14,8 @@ export default defineConfig({
       JWT_ACCESS_SECRET: 'test-secret-test-secret-test-secret-123456',
       // Tests must NEVER send real email, even if your backend/.env has real mail settings.
       MAIL_DRIVER: 'console',
+      // Subscriptions are switched off in real use for now; the tests cover the rules, so they run with them ON.
+      SUBSCRIPTION_ENFORCED: 'true',
     },
   },
 });

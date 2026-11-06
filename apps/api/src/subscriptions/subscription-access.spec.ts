@@ -1,4 +1,4 @@
-import { hasActiveAccess } from './subscription-access.js';
+import { hasActiveAccess, memberMayCall } from './subscription-access.js';
 
 const future = new Date(Date.now() + 86_400_000);
 const past = new Date(Date.now() - 86_400_000);
@@ -18,5 +18,16 @@ describe('hasActiveAccess', () => {
   });
   it('blocks EXPIRED', () => {
     expect(hasActiveAccess({ status: 'EXPIRED', expiresAt: past })).toBe(false);
+  });
+});
+
+describe('memberMayCall', () => {
+  it('lets everybody call while subscriptions are switched off', () => {
+    expect(memberMayCall(null, false)).toBe(true);
+    expect(memberMayCall({ status: 'EXPIRED', expiresAt: past }, false)).toBe(true);
+  });
+  it('applies the subscription rules once they are switched on', () => {
+    expect(memberMayCall(null, true)).toBe(false);
+    expect(memberMayCall({ status: 'ACTIVE', expiresAt: future }, true)).toBe(true);
   });
 });

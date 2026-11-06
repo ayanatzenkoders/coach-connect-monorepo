@@ -128,6 +128,13 @@ describe('calls: start, join, decline, cancel, leave, timeouts', () => {
       const res = await startCall('dan@x.com', chatId);
       expect([res.status, res.body.code]).toEqual([403, 'SUBSCRIPTION_REQUIRED']);
       expect(await prisma.call.count()).toBe(0);
+      // Switched off (the default for now): the same member may start the call.
+      const config = app.get(CallsService)['config'] as { get: (k: string) => unknown };
+      const off = vi.spyOn(config, 'get').mockImplementation((k: string) => (k === 'SUBSCRIPTION_ENFORCED' ? false : process.env[k]));
+      const whenOff = await startCall('dan@x.com', chatId);
+      off.mockRestore();
+      expect(whenOff.status).toBe(201);
+      await calls.sweep(new Date(Date.now() + 60_000)); // let it ring out so the next step starts clean
       const fromCoach = await startCall('amara@x.com', chatId);
       expect(fromCoach.status).toBe(201);
       expect(dan.id).toBeTruthy();
@@ -210,6 +217,21 @@ describe('calls: start, join, decline, cancel, leave, timeouts', () => {
       expect([res.status, res.body.code]).toEqual([503, 'CALLS_NOT_CONFIGURED']);
       expect(await prisma.call.count()).toBe(0);
       expect(key).toBeTruthy();
+    });
+  });
+
+  describe('the Messages list', () => {
+    it('marks a chat while its call is live (also for somebody who left it), and stops when the call ends', async () => {
+      const { chatId, callId } = await groupRinging();
+      const live = async (email: string) => ((await get(email, '/chats')).body.items as { id: string; liveCall: unknown }[]).find((c) => c.id === chatId)?.liveCall;
+
+      expect(await live('ben@x.com')).toEqual({ id: callId, video: true }); // ringing
+      expect((await join('ben@x.com', callId)).status).toBe(200);
+      expect((await leave('ben@x.com', callId)).status).toBe(200); // Ben left, the call goes on
+      expect(await live('ben@x.com')).toEqual({ id: callId, video: true }); // he can still see that it is running
+      expect((await leave('ann@x.com', callId)).status).toBe(200);
+      await calls.sweep(new Date(Date.now() + 3600_000));
+      expect(await live('ben@x.com')).toBeNull();
     });
   });
 

@@ -5,7 +5,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { AppException } from '../common/errors/app.exception.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
-import { hasActiveAccess } from '../subscriptions/subscription-access.js';
+import { memberMayCall } from '../subscriptions/subscription-access.js';
 import type { LoginInput, RegisterCoachInput, RegisterInput } from '@coach-connect/shared';
 import { EmailVerificationService } from './email-verification.service.js';
 import { PasswordService } from './password.service.js';
@@ -67,7 +67,7 @@ export class AuthService {
     private readonly audit: AuditService,
     private readonly emailVerification: EmailVerificationService,
     private readonly realtime: RealtimeService,
-    config: ConfigService,
+    private readonly config: ConfigService,
   ) {
     this.sessionTtlMs = config.getOrThrow<number>('SESSION_TTL_DAYS') * 86_400_000;
   }
@@ -263,7 +263,7 @@ export class AuthService {
         ? { status: user.subscription.status, expiresAt: user.subscription.expiresAt }
         : null,
       // Coaches never need a subscription; members do.
-      canCall: user.role === 'COACH' || hasActiveAccess(user.subscription),
+      canCall: user.role === 'COACH' || memberMayCall(user.subscription, this.config.get('SUBSCRIPTION_ENFORCED') === true),
       // "Available now": only coaches have it.
       isAvailable: user.role === 'COACH' ? (user.coachProfile?.available ?? false) : null,
     };
