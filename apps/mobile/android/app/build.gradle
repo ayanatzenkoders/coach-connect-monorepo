@@ -17,6 +17,12 @@ react {
     //   The cli.js file which is the React Native CLI entrypoint. Default is ../../../../node_modules/react-native/cli.js
     // cliFile = file("../../../../node_modules/react-native/cli.js")
 
+    // MONOREPO: pnpm installs react-native ONCE at the repo root (coach-connect/node_modules), not inside apps/mobile,
+    // so the defaults above (which look inside apps/mobile) find nothing. Point at the real folders (4 levels up from android/app).
+    reactNativeDir = file("../../../../node_modules/react-native")
+    codegenDir = file("../../../../node_modules/@react-native/codegen")
+    cliFile = file("../../../../node_modules/react-native/cli.js")
+
     /* Variants */
     //   The list of variants to that are debuggable. For those we're going to
     //   skip the bundling of the JS bundle and the assets. Default is "debug", "debugOptimized".

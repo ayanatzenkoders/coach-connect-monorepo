@@ -5,15 +5,20 @@ export { CODE_LENGTH, COACH_BIO_MAX, COACH_BIO_MIN, COACH_MAX_SPECIALTIES, COACH
 
 /**
  * Where the backend lives while developing.
- * - iOS simulator: your Mac is "localhost".
- * - Android emulator: your Mac is the special address 10.0.2.2.
- * - A real phone: put your Mac's Wi-Fi address here instead, e.g. 'http://192.168.1.20:3000'.
+ *  - iOS simulator: your Mac is "localhost".   - Android emulator: your Mac is the special address 10.0.2.2.
+ *  - A REAL phone: "localhost" would be the phone itself, so it needs your Mac's address on the Wi-Fi (the phone and the
+ *    Mac must be on the same network). Set DEV_HOST to it. Find it with:  ipconfig getifaddr en0
+ * Leave DEV_HOST as null to use localhost / 10.0.2.2 (simulator and emulator only).
  * TODO (Phase 10): production URL per environment (dev / staging / production).
  */
-const DEV_URL = Platform.select({
-  android: 'http://10.0.2.2:3000',
-  default: 'http://localhost:3000',
-});
+const DEV_HOST: string | null = '192.168.0.36';
+
+const DEV_URL = DEV_HOST
+  ? `http://${DEV_HOST}:3000`
+  : Platform.select({
+      android: 'http://10.0.2.2:3000',
+      default: 'http://localhost:3000',
+    });
 
 export const API_BASE_URL: string = DEV_URL;
 
