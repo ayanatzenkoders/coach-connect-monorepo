@@ -1,4 +1,5 @@
 import UIKit
+import livekit_react_native
 
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -6,6 +7,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
-    true
+    // LiveKit (calls) needs its audio engine prepared once, before any React Native code runs.
+    LivekitReactNative.setup()
+    return true
   }
 }

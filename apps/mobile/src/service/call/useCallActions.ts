@@ -29,7 +29,15 @@ export const useCallActions = () => {
       } catch (e) {
         // No microphone permission, no network, LiveKit down... Do not leave a ghost call behind: step out of it again.
         const denied = e instanceof Error && e.message === 'PERMISSION_DENIED';
-        showToast(denied ? 'Allow the microphone (and camera for video) in Settings to join calls.' : 'Could not connect the call. Check your connection and try again.');
+        if (__DEV__) console.warn('[call] could not connect to the room:', e); // the toast is short on purpose; the real reason shows in Metro
+        const micStuck = e instanceof Error && (e.message === 'MIC_FAILED' || e.message === 'CAMERA_FAILED');
+        showToast(
+          denied
+            ? 'Allow the microphone (and camera for video) in Settings to join calls.'
+            : micStuck
+              ? 'The microphone (or camera) could not start on this phone. Close other apps that use it and try again.'
+              : 'Could not connect the call. Check your connection and try again.',
+        );
         useCallStore.getState().setActive(null);
         await leaveRoom();
         await withAuth((token) => callApi.leave(token, session.call.id)).catch(() => undefined);
