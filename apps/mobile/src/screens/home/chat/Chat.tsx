@@ -1,5 +1,5 @@
 import React, { memo, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CustomAvatar, CustomConnectionBanner, CustomHeader, PhoneIcon, SendIcon, VideoIcon } from '@/src/components';
 import { COLORS, MAX_FONT_SCALE, MESSAGE_MAX_LENGTH, MIN_TOUCH } from '@/src/constants';
@@ -9,6 +9,9 @@ import type { RootStackScreenProps } from '@/src/utils/types';
 import { ChatItem, useChat } from './hook/useChat';
 
 type Props = RootStackScreenProps<'Chat'>;
+
+/** Space between the text box and the keyboard while typing. */
+const KEYBOARD_GAP = 16;
 
 /** Screen 10: one chat. Newest message at the bottom; the list is "inverted" so it starts there. */
 const Chat: React.FC<Props> = ({ route }) => {
@@ -31,7 +34,7 @@ const Chat: React.FC<Props> = ({ route }) => {
   const listData = useMemo(() => [...chat.items].reverse(), [chat.items]);
 
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={styles.flex} behavior="padding">
       <CustomHeader
         onBack={chat.goBack}
         backLabel="Back to messages"
@@ -128,8 +131,8 @@ function Composer({ onSend }: { onSend: (text: string) => void }) {
   const keyboardVisible = useKeyboardVisible();
   const [draft, setDraft] = useState('');
   const canSend = draft.trim().length > 0;
-  // Home-indicator padding only while the keyboard is closed; with the keyboard open it would be an empty gap.
-  const paddingBottom = keyboardVisible ? 10 : Math.max(insets.bottom, 10);
+  // Keyboard closed: clear the home indicator. Keyboard open: that area is covered, so a small even gap above the keys instead.
+  const paddingBottom = keyboardVisible ? KEYBOARD_GAP : Math.max(insets.bottom, 10);
 
   const submit = () => {
     if (!canSend) return;
