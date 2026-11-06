@@ -3,6 +3,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { SOCKET_EVENTS } from '@coach-connect/shared/realtime';
 import type { CallIncomingPayload, CallUpdatedPayload } from '@coach-connect/shared/realtime';
+import { applyLiveCall } from '@/src/service/chats/chatsCache';
+import { patchChatsCache } from '@/src/service/chats/chatsQuery';
 import { endedMessage } from '@/src/service/call/callUi';
 import { leaveRoom } from '@/src/service/call/callEngine';
 import { getSocket } from '@/src/service/socket/socket';
@@ -29,12 +31,15 @@ export function useCallSignals() {
       if (call.startedById === meId) return; // my own call, on another phone of mine
       if (store().active) return; // already in a call: the server marks me BUSY for new ones, this is just a safety net
       store().setIncoming(call);
+      patchChatsCache(queryClient, (chats) => applyLiveCall(chats, call.chatId, { id: call.id, video: call.video }));
     };
 
     const onUpdated = ({ call }: CallUpdatedPayload) => {
       const over = call.state === 'ENDED';
       // 1. The "Call in progress" banner of that chat.
       queryClient.setQueryData(['call', call.chatId], { call: over ? null : call });
+      // ...and the mark on that chat's row in the Messages list.
+      patchChatsCache(queryClient, (chats) => applyLiveCall(chats, call.chatId, over ? null : { id: call.id, video: call.video }));
 
       // 2. The ringing overlay: close it when the call is over, or I am no longer being rung (answered on another phone...).
       const mine = call.participants.find((p) => p.userId === meId);
@@ -59,7 +64,10 @@ export function useCallSignals() {
     };
 
     // After a lost connection we may have missed pushes: forget what the banners think and ask again.
-    const onReconnect = () => queryClient.invalidateQueries({ queryKey: ['call'] });
+    const onReconnect = () => {
+      queryClient.invalidateQueries({ queryKey: ['call'] });
+      queryClient.invalidateQueries({ queryKey: ['chats'] });
+    };
 
     socket.on(SOCKET_EVENTS.callIncoming, onIncoming);
     socket.on(SOCKET_EVENTS.callUpdated, onUpdated);

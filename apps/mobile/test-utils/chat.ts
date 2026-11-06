@@ -19,6 +19,7 @@ export const chatSummary = (over: Partial<ChatSummary> = {}): ChatSummary => {
     lastMessageAt: null,
     lastMessage: null,
     canSend: true,
+    liveCall: null,
     ...over,
   };
 };

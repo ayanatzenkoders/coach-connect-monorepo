@@ -1,4 +1,4 @@
-import { applyMessageNew, applyMyRead, removeChat, totalUnread } from '@/src/service/chats/chatsCache';
+import { applyLiveCall, applyMessageNew, applyMyRead, removeChat, totalUnread } from '@/src/service/chats/chatsCache';
 import type { ChatSummary } from '@/src/service/api/chat.api';
 import { chatSummary } from '../../test-utils/chat';
 import type { MessageNewPayload } from '@coach-connect/shared/realtime';
@@ -81,5 +81,23 @@ describe('removeChat', () => {
   it('returns the SAME list when the chat is not there', () => {
     const list = [chat('a', 1, 0)];
     expect(removeChat(list, 'zzz')).toBe(list);
+  });
+});
+
+describe('applyLiveCall', () => {
+  it('marks the chat while a call runs in it, and clears the mark when it ends; other chats stay as they are', () => {
+    const list = [chat('a', 1, 0), chat('b', 1, 0)];
+    const marked = applyLiveCall(list, 'b', { id: 'call-1', video: true });
+    expect(marked[1]!.liveCall).toEqual({ id: 'call-1', video: true });
+    expect(marked[0]).toBe(list[0]);
+    expect(applyLiveCall(marked, 'b', null)[1]!.liveCall).toBeNull();
+  });
+
+  it('returns the SAME list when nothing changes, or when the chat is not listed', () => {
+    const list = [chat('a', 1, 0)];
+    expect(applyLiveCall(list, 'a', null)).toBe(list);
+    expect(applyLiveCall(list, 'zzz', { id: 'call-1', video: false })).toBe(list);
+    const marked = applyLiveCall(list, 'a', { id: 'call-1', video: false });
+    expect(applyLiveCall(marked, 'a', { id: 'call-1', video: false })).toBe(marked);
   });
 });

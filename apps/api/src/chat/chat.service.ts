@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '../generated/prisma/client.js';
+import { Prisma, type CallState } from '../generated/prisma/client.js';
 import { AppException } from '../common/errors/app.exception.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SOCKET_EVENTS } from '@coach-connect/shared';
@@ -22,7 +22,10 @@ const memberSelect = {
   lastReadSequenceNumber: true,
   user: { select: { id: true, name: true, role: true, bannedAt: true, deletedAt: true } },
 } as const;
-const chatInclude = { members: { select: memberSelect } } as const;
+/** A call that has not ended. */
+const LIVE_CALL_STATES: CallState[] = ['RINGING', 'ACTIVE'];
+// `calls`: the call ringing or running in the chat (there is at most one), so the Messages list can mark the chat.
+const chatInclude = { members: { select: memberSelect }, calls: { where: { state: { in: LIVE_CALL_STATES } }, select: { id: true, video: true }, take: 1 } } as const;
 
 type ChatRow = Prisma.ChatGetPayload<{ include: typeof chatInclude }>;
 
@@ -338,6 +341,7 @@ export class ChatService {
       lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
       lastMessage: last && { senderId: last.senderId, senderName: last.sender.name, body: last.body, createdAt: last.createdAt.toISOString() },
       canSend: canSend(chat, me),
+      liveCall: chat.calls[0] ?? null,
     };
   }
 }

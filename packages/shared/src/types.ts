@@ -81,6 +81,8 @@ export interface ChatSummary {
    * (It comes back to true if they are unbanned.)
    */
   canSend: boolean;
+  /** The call that is ringing or running in this chat right now, or null. The Messages list marks such a chat. */
+  liveCall: { id: string; video: boolean } | null;
 }
 
 export interface ChatMemberInfo {

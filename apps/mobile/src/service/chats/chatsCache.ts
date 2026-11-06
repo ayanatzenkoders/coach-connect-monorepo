@@ -37,6 +37,18 @@ export function applyMessageNew(chats: ChatSummary[], payload: MessageNewPayload
   return [updated, ...chats.filter((c) => c.id !== chat.id)]; // newest chat first, like the server's list
 }
 
+/** A call started or ended in this chat: mark the chat (or clear the mark). Same array when nothing changes; a chat that is not listed is ignored. */
+export function applyLiveCall(chats: ChatSummary[], chatId: string, liveCall: ChatSummary['liveCall']): ChatSummary[] {
+  let changed = false;
+  const next = chats.map((chat) => {
+    if (chat.id !== chatId) return chat;
+    if (chat.liveCall?.id === liveCall?.id && chat.liveCall?.video === liveCall?.video) return chat;
+    changed = true;
+    return { ...chat, liveCall };
+  });
+  return changed ? next : chats;
+}
+
 /** I have read this chat up to `lastRead`: unread is what is left after it. Never goes below 0. */
 export function applyMyRead(chats: ChatSummary[], chatId: string, lastRead: number): ChatSummary[] {
   let changed = false;

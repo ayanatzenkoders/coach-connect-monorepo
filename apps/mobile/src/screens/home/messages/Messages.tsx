@@ -1,7 +1,7 @@
-import React from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { AccessibilityInfo, ActivityIndicator, Animated, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CustomAvatar, PlusIcon } from '@/src/components';
+import { CustomAvatar, PhoneIcon, PlusIcon, VideoIcon } from '@/src/components';
 import { COLORS, MAX_FONT_SCALE, TEXT } from '@/src/constants';
 import type { ChatSummary } from '@/src/service/api/chat.api';
 import { listTime } from '@/src/utils/helpers';
@@ -67,6 +67,7 @@ function Row({ chat: c, meId, onPress }: { chat: ChatSummary; meId: string; onPr
           <Text style={[styles.preview, unread && styles.previewUnread]} numberOfLines={1}>
             {preview}
           </Text>
+          {c.liveCall && <LiveCallPill video={c.liveCall.video} />}
           {unread && (
             <View accessibilityLabel={`${c.unreadCount} unread`} style={styles.badge}>
               <Text style={styles.badgeText}>{c.unreadCount > 99 ? '99+' : c.unreadCount}</Text>
@@ -78,7 +79,44 @@ function Row({ chat: c, meId, onPress }: { chat: ChatSummary; meId: string; onPr
   );
 }
 
+/**
+ * "Call in progress" mark on a chat row. It fades slowly in and out so a call you left (or missed) is hard to overlook, without
+ * being loud. With "reduce motion" on, it stays still. The animation runs on the native side: no JS work per frame.
+ */
+function LiveCallPill({ video }: { video: boolean }) {
+  const opacity = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    let loop: Animated.CompositeAnimation | null = null;
+    let cancelled = false;
+    AccessibilityInfo.isReduceMotionEnabled().then((reduce) => {
+      if (cancelled || reduce) return;
+      loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(opacity, { toValue: 0.35, duration: 1100, useNativeDriver: true }),
+          Animated.timing(opacity, { toValue: 1, duration: 1100, useNativeDriver: true }),
+        ]),
+      );
+      loop.start();
+    });
+    return () => {
+      cancelled = true;
+      loop?.stop();
+    };
+  }, [opacity]);
+  const Icon = video ? VideoIcon : PhoneIcon;
+  return (
+    <Animated.View accessibilityLabel={video ? 'Video call in progress' : 'Voice call in progress'} style={[styles.livePill, { opacity }]}>
+      <Icon color={COLORS.onPrimary} size={14} />
+      <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.livePillText}>
+        Call in progress
+      </Text>
+    </Animated.View>
+  );
+}
+
 const styles = StyleSheet.create({
+  livePill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 12, backgroundColor: COLORS.primary },
+  livePillText: { fontSize: 12, fontWeight: '700', color: COLORS.onPrimary },
   flex: { flex: 1, backgroundColor: COLORS.background },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 12 },
   newGroup: { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center' },

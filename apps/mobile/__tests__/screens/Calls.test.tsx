@@ -1,5 +1,7 @@
 import ReactTestRenderer from 'react-test-renderer';
 import Call from '@/src/screens/call/Call';
+import Messages from '@/src/screens/home/messages/Messages';
+import { chatApi } from '@/src/service/api/chat.api';
 import { CallBanner } from '@/src/screens/call/CallBanner';
 import { CallLayer } from '@/src/screens/call/CallLayer';
 import { callApi } from '@/src/service/api/call.api';
@@ -8,11 +10,12 @@ import { ApiError } from '@/src/service/setup/apiClient';
 import { useAuthStore } from '@/src/store/auth.store';
 import { useCallStore } from '@/src/store/call.store';
 import { allText, clearToast, lastToast, navigationMock, press, render, resetNavigationMock, screenProps } from '@/test-utils';
-import { callInfo } from '../../test-utils/chat';
+import { callInfo, chatSummary } from '../../test-utils/chat';
 import { fakeSocket } from '../../test-utils/socket';
 
 jest.mock('react-native-keychain', () => ({}));
 jest.mock('@/src/service/api/call.api', () => ({ callApi: { start: jest.fn(), join: jest.fn(), decline: jest.fn(), cancel: jest.fn(), leave: jest.fn(), inChat: jest.fn() } }));
+jest.mock('@/src/service/api/chat.api', () => ({ chatApi: { chats: jest.fn() } }));
 jest.mock('@/src/service/call/callEngine', () => ({ connectToRoom: jest.fn(), leaveRoom: jest.fn(), setCamera: jest.fn(), setMicrophone: jest.fn(), setSpeaker: jest.fn(), videoTiles: () => [] }));
 
 const api = callApi as jest.Mocked<typeof callApi>;
@@ -103,6 +106,17 @@ describe('ringing overlay and live pushes (CallLayer)', () => {
     expect(leaveTheRoom).toHaveBeenCalled();
   });
 
+  it('a microphone that never starts says so (not "check your connection") and leaves no ghost call', async () => {
+    connect.mockRejectedValue(new Error('MIC_FAILED'));
+    const tree = await render(<CallLayer />);
+    await push('call:incoming', { call: ringingForBen });
+    await press(tree, 'Accept call');
+    expect(lastToast()?.message).toContain('microphone');
+    expect(lastToast()?.message).not.toContain('connection');
+    expect(useCallStore.getState().active).toBeNull();
+    expect(api.leave).toHaveBeenCalledWith('token', 'call-1');
+  });
+
   it('the ringing screen closes by itself when the caller gives up, and says why', async () => {
     const tree = await render(<CallLayer />);
     await push('call:incoming', { call: ringingForBen });
@@ -188,6 +202,23 @@ describe('"Call in progress" banner in a chat', () => {
     expect(allText(tree)).toContain('Join');
     await push('call:updated', { call: active({ state: 'ENDED', endReason: 'COMPLETED', endedAt: 'x' }) });
     expect(allText(tree)).not.toContain('Join');
+  });
+});
+
+describe('the Messages list follows the call pushes', () => {
+  it('marks the chat when a call starts in it and clears the mark when the call ends', async () => {
+    (chatApi.chats as jest.Mock).mockResolvedValue({ items: [chatSummary({ id: 'chat-1', title: 'Ann', lastMessageAt: '2026-10-30T10:00:00.000Z' })] });
+    const tree = await render(
+      <>
+        <CallLayer />
+        <Messages />
+      </>,
+    );
+    expect(allText(tree)).not.toContain('Call in progress');
+    await push('call:updated', { call: active() });
+    expect(allText(tree)).toContain('Call in progress');
+    await push('call:updated', { call: active({ state: 'ENDED', endReason: 'COMPLETED', endedAt: 'x' }) });
+    expect(allText(tree)).not.toContain('Call in progress');
   });
 });
 

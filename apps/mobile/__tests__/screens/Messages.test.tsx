@@ -120,6 +120,13 @@ describe('Messages screen', () => {
     expect(chats).not.toHaveBeenCalled();
   });
 
+  it('marks a chat that has a call in progress, also when the call was left (so it is not forgotten)', async () => {
+    chats.mockResolvedValue({ items: [conv({ name: 'Amara', liveCall: { id: 'call-1', video: false } }), conv({ name: 'Ben' })] });
+    const tree = await setup();
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'Voice call in progress').length).toBeGreaterThan(0);
+    expect(allText(tree).filter((t) => t === 'Call in progress')).toHaveLength(1); // only Amara's row
+  });
+
   it('shows a toast when the first load fails', async () => {
     chats.mockRejectedValue(new ApiError(0, 'NETWORK_ERROR', 'Cannot reach the server.'));
     await setup();
