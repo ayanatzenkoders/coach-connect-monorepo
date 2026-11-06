@@ -46,14 +46,18 @@ export class SessionAuthService {
         user: { select: { id: true, role: true, bannedAt: true, deletedAt: true, coachProfile: { select: { approved: true } } } },
       },
     });
-    if (!session || session.userId !== payload.sub || session.revokedAt) {
+    if (!session || session.userId !== payload.sub) {
       throw new AppException(401, 'SESSION_REVOKED', 'Session ended. Please sign in again.');
     }
+    if (session.user.deletedAt) throw new AppException(401, 'SESSION_REVOKED', 'Session ended. Please sign in again.');
+    // The ban check comes BEFORE the "session revoked" check on purpose: banning revokes every session of the person,
+    // so checking revoked first would hide the real reason and the app would say "your session ended" instead of
+    // "this account has been suspended". (Someone who simply logged out and was banned later is told the truth too.)
+    if (session.user.bannedAt) throw new AppException(403, 'ACCOUNT_BANNED', 'This account has been suspended.');
+    if (session.revokedAt) throw new AppException(401, 'SESSION_REVOKED', 'Session ended. Please sign in again.');
     if (session.expiresAt.getTime() <= Date.now()) {
       throw new AppException(401, 'SESSION_EXPIRED', 'Session expired. Please sign in again.');
     }
-    if (session.user.deletedAt) throw new AppException(401, 'SESSION_REVOKED', 'Session ended. Please sign in again.');
-    if (session.user.bannedAt) throw new AppException(403, 'ACCOUNT_BANNED', 'This account has been suspended.');
 
     // A coach waits for an admin: until then they may only verify their email and sign out (see @AllowPendingCoach),
     // and they never get the live connection. Judged from the database row, so approval (or a ban) applies at once.

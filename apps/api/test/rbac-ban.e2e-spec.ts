@@ -71,13 +71,15 @@ describe('RBAC and bans', () => {
     expect(ban.status).toBe(200);
     expect(ban.body).toMatchObject({ alreadyBanned: false, revokedSessions: 2 });
 
-    // 1) the still-unexpired access tokens stop working immediately, on both devices
+    // 1) the still-unexpired access tokens stop working immediately, on both devices, and the answer says WHY:
+    //    the sessions were revoked in the same transaction, but the app must hear "suspended", not "session ended"
     for (const tok of [memberTok, second]) {
       const me = await api(app).get('/auth/me').set(bearer(tok.accessToken));
-      expect(me.status).toBe(401); // sessions were revoked in the same transaction
+      expect([me.status, me.body.code]).toEqual([403, 'ACCOUNT_BANNED']);
     }
-    // 2) refresh tokens are dead
-    expect((await api(app).post('/auth/refresh').send({ refreshToken: memberTok.refreshToken })).status).toBe(401);
+    // 2) refresh tokens are dead, with the same honest reason
+    const refreshed = await api(app).post('/auth/refresh').send({ refreshToken: memberTok.refreshToken });
+    expect([refreshed.status, refreshed.body.code]).toEqual([403, 'ACCOUNT_BANNED']);
     // 3) login says banned
     const again = await login(app, 'member@x.com');
     expect(again.status).toBe(403);
@@ -100,6 +102,24 @@ describe('RBAC and bans', () => {
     const me = await api(app).get('/auth/me').set(bearer(memberTok.accessToken));
     expect(me.status).toBe(403);
     expect(me.body.code).toBe('ACCOUNT_BANNED');
+  });
+
+  it('BAN: after an unban the OLD login stays dead and says "session ended" (not "banned"): the person must sign in again', async () => {
+    const { adminTok, member, memberTok } = await setup();
+    const url = `/admin/users/${member.id}`;
+    await api(app).post(`${url}/ban`).set(bearer(adminTok.accessToken)).send({ reason: 'Other' });
+    await api(app).post(`${url}/unban`).set(bearer(adminTok.accessToken));
+    const me = await api(app).get('/auth/me').set(bearer(memberTok.accessToken));
+    expect([me.status, me.body.code]).toEqual([401, 'SESSION_REVOKED']);
+    const refreshed = await api(app).post('/auth/refresh').send({ refreshToken: memberTok.refreshToken });
+    expect([refreshed.status, refreshed.body.code]).toEqual([401, 'SESSION_REVOKED']);
+  });
+
+  it('LOGOUT is still "session ended" for someone who is not banned', async () => {
+    const { memberTok } = await setup();
+    await api(app).post('/auth/logout').set(bearer(memberTok.accessToken));
+    const me = await api(app).get('/auth/me').set(bearer(memberTok.accessToken));
+    expect([me.status, me.body.code]).toEqual([401, 'SESSION_REVOKED']);
   });
 
   it('banning twice is harmless; unban lets the user sign in again with a NEW session', async () => {

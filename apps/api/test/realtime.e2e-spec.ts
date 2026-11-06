@@ -198,6 +198,8 @@ describe('realtime (sockets)', () => {
 
   it('closes a banned user\'s open socket at once', async () => {
     const { ben } = await setup();
+    // A second login of Ben's on ANOTHER device (the same device would replace the first session and close its socket).
+    const benToken = (await login(app, 'ben@x.com', 'tablet-device-1')).body.accessToken as string;
     const benUser = await prisma.user.findFirstOrThrow({ where: { email: 'ben@x.com' } });
     await seedUser(prisma, 'admin@x.com', 'ADMIN');
     const adminToken = (await api(app).post('/admin/auth/login').send({ email: 'admin@x.com', password: 'Password123!', deviceId: 'admin-device-1' })).body.accessToken as string;
@@ -205,6 +207,8 @@ describe('realtime (sockets)', () => {
     const closed = new Promise<string>((resolve) => ben.on('disconnect', resolve));
     await api(app).post(`/admin/users/${benUser.id}/ban`).set(bearer(adminToken)).send({ reason: 'Other' });
     expect(await closed).toBe('io server disconnect'); // the SERVER hung up
-    await expect(connect((await login(app, 'ben@x.com')).body.accessToken)).rejects.toBeDefined(); // and cannot come back
+    // and cannot come back: the handshake is refused with the true reason, so the app shows "suspended", not "session ended"
+    await expect(connect((await login(app, 'ben@x.com')).body.accessToken)).rejects.toBeDefined();
+    await expect(connect(benToken)).rejects.toThrow('ACCOUNT_BANNED');
   });
 });

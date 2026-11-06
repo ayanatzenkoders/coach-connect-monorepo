@@ -177,6 +177,8 @@ export class AuthService {
         include: { user: { include: { coachProfile: { select: { approved: true } } } } },
       });
       if (!session) throw this.invalidRefresh();
+      // Banned? Say so first: a ban revokes the sessions, so the "revoked" answer below would hide the real reason.
+      if (session.user.bannedAt) throw this.banned();
       if (session.revokedAt) throw new AppException(401, 'SESSION_REVOKED', 'Session ended. Please sign in again.');
       if (session.expiresAt.getTime() <= Date.now()) {
         throw new AppException(401, 'SESSION_EXPIRED', 'Session expired. Please sign in again.');
