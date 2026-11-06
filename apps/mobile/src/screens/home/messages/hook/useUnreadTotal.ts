@@ -1,28 +1,16 @@
 import { StackActions, useNavigation } from '@react-navigation/native';
-import { QueryClient, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { AppState } from 'react-native';
 import { SOCKET_EVENTS } from '@coach-connect/shared/realtime';
 import type { ChatDeletedPayload, ChatReadPayload, ChatUpdatedPayload, MessageNewPayload } from '@coach-connect/shared/realtime';
-import { chatApi, ChatSummary } from '@/src/service/api/chat.api';
-import { withAuth } from '@/src/service/setup/withAuth';
+import type { ChatSummary } from '@/src/service/api/chat.api';
+import { applyMessageNew, applyMyRead, removeChat, totalUnread } from '@/src/service/chats/chatsCache';
+import { CHATS_QUERY_KEY, fetchChats, patchChatsCache } from '@/src/service/chats/chatsQuery';
 import { getSocket } from '@/src/service/socket/socket';
 import { useActiveChatStore } from '@/src/store/activeChat.store';
 import { useAuthStore } from '@/src/store/auth.store';
 import { showToast } from '@/src/store/toast.store';
-import { applyMessageNew, applyMyRead, removeChat, totalUnread } from '../chatsCache';
-
-/** The one cache entry holding "my chats". The Messages tab and the tab bar badge both read it. */
-export const CHATS_QUERY_KEY = ['chats'] as const;
-export const fetchChats = async () => (await withAuth((token) => chatApi.chats(token))).items;
-
-/** Change the cached chat list with `apply`; if it cannot be patched safely (returns null, or nothing is cached yet), reload it instead. */
-export function patchChatsCache(queryClient: QueryClient, apply: (chats: ChatSummary[]) => ChatSummary[] | null) {
-  const current = queryClient.getQueryData<ChatSummary[]>(CHATS_QUERY_KEY);
-  const next = current ? apply(current) : null;
-  if (next) queryClient.setQueryData(CHATS_QUERY_KEY, next);
-  else queryClient.invalidateQueries({ queryKey: CHATS_QUERY_KEY });
-}
 
 /**
  * Number of unread messages over all chats, for the badge on the Messages tab. Used ONCE, by the tab bar screen

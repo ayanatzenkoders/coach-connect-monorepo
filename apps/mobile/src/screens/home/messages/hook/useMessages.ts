@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { ChatSummary } from '@/src/service/api/chat.api';
 import { showApiError } from '@/src/service/setup/handleApiError';
 import { useAuthStore } from '@/src/store/auth.store';
-import { CHATS_QUERY_KEY, fetchChats } from './useUnreadTotal';
+import { CHATS_QUERY_KEY, fetchChats } from '@/src/service/chats/chatsQuery';
 
 /**
  * The Messages tab: my chats. The list lives in the shared `['chats']` cache that the tab bar keeps live from

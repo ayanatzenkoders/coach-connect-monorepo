@@ -4,6 +4,8 @@ import Chat from '@/src/screens/home/chat/Chat';
 import { mergeMessages } from '@/src/screens/home/chat/hook/useChat';
 import { chatMessage, chatSummary, groupSummary } from '../../test-utils/chat';
 import { fakeSocket } from '../../test-utils/socket';
+import * as chatsQuery from '@/src/service/chats/chatsQuery';
+import { callApi } from '@/src/service/api/call.api';
 import { chatApi, ChatMessage, ChatSummary, MessagesPage } from '@/src/service/api/chat.api';
 import { ApiError } from '@/src/service/setup/apiClient';
 import { useActiveChatStore } from '@/src/store/activeChat.store';
@@ -13,6 +15,8 @@ import { allText, byLabel, clearToast, lastToast, navigationMock, press, render,
 
 jest.mock('react-native-keychain', () => ({}));
 jest.mock('@/src/service/api/chat.api', () => ({ chatApi: { messages: jest.fn(), send: jest.fn(), markRead: jest.fn() } }));
+jest.mock('@/src/service/api/call.api', () => ({ callApi: { start: jest.fn(), inChat: jest.fn() } }));
+jest.mock('@/src/service/call/callEngine', () => ({ connectToRoom: jest.fn(), leaveRoom: jest.fn(), setCamera: jest.fn(), setMicrophone: jest.fn(), setSpeaker: jest.fn(), videoTiles: () => [] }));
 
 const api = chatApi as unknown as Record<'messages' | 'send' | 'markRead', jest.Mock>;
 const ME = 'me-id';
@@ -146,6 +150,53 @@ describe('Chat screen', () => {
     expect(api.markRead).not.toHaveBeenCalled(); // my own message is never "read" by me
   });
 
+  it('after a successful send the Messages list is updated from the HTTP answer itself (the socket may be down)', async () => {
+    const patch = jest.spyOn(chatsQuery, 'patchChatsCache');
+    const tree = await open(page([]));
+    const sentFromThisChat = (text: string) => api.send.mock.calls.find((c) => c[2].body === text)![2];
+    api.send.mockImplementation(async (_t: string, _id: string, input: { clientMessageId: string; body: string }) => ({ message: msg(1, ME, input.body, input.clientMessageId), duplicate: false }));
+    await typeInto(tree, 'Message', 'hello coach');
+    await press(tree, 'Send message');
+    await settle();
+
+    // No socket push was played in this test: the only thing that can have told the list is the REST answer.
+    expect(patch).toHaveBeenCalledTimes(1);
+    const apply = patch.mock.calls[0]![1];
+    const other = chatSummary({ id: 'other-chat', lastMessageSequenceNumber: 9, unreadCount: 2 });
+    const mine = chatSummary({ id: 'conv-1', lastMessageSequenceNumber: 0, unreadCount: 0 });
+    const next = apply([other, mine])!;
+    expect(next.map((c) => c.id)).toEqual(['conv-1', 'other-chat']); // moved to the top
+    expect(next[0]).toMatchObject({ lastMessageSequenceNumber: 1, unreadCount: 0, lastMessage: { body: 'hello coach', senderId: ME } });
+    // The socket echo that may follow changes nothing: the number is already held, so the SAME list comes back.
+    expect(apply(next)).toBe(next);
+    expect(sentFromThisChat('hello coach').clientMessageId).toBeTruthy();
+    patch.mockRestore();
+  });
+
+  it('a retry that the server answers as a duplicate does not touch the Messages list again', async () => {
+    const patch = jest.spyOn(chatsQuery, 'patchChatsCache');
+    const tree = await open(page([]));
+    api.send.mockImplementation(async (_t: string, _id: string, input: { clientMessageId: string; body: string }) => ({ message: msg(1, ME, input.body, input.clientMessageId), duplicate: true }));
+    await typeInto(tree, 'Message', 'again');
+    await press(tree, 'Send message');
+    await settle();
+    const apply = patch.mock.calls[0]![1];
+    const held = [chatSummary({ id: 'conv-1', lastMessageSequenceNumber: 1, unreadCount: 0 })];
+    expect(apply(held)).toBe(held); // already holds number 1: nothing to change, no extra render
+    patch.mockRestore();
+  });
+
+  it('a failed send leaves the Messages list alone', async () => {
+    const patch = jest.spyOn(chatsQuery, 'patchChatsCache');
+    api.send.mockRejectedValue(new ApiError(0, 'NETWORK_ERROR', 'Cannot reach the server.'));
+    const tree = await open(page([]));
+    await typeInto(tree, 'Message', 'nope');
+    await press(tree, 'Send message');
+    await settle();
+    expect(patch).not.toHaveBeenCalled();
+    patch.mockRestore();
+  });
+
   it('shows the connection banner when the live connection is down, and hides it when it is back', async () => {
     const tree = await open(page([msg(1, 'amara-id', 'hi')]));
     const banner = 'Connection lost. Reconnecting…';
@@ -208,10 +259,12 @@ describe('Chat screen', () => {
       expect(allText(tree)).toContain('Seen by all');
     });
 
-    it('the Call button says group calls are coming soon', async () => {
+    it('the call buttons start a voice or a video call in the group chat', async () => {
       const tree = await openGroup(page([]));
       await press(tree, 'Audio call');
-      expect(lastToast()?.message).toBe('Group calls are coming soon.');
+      expect(callApi.start).toHaveBeenLastCalledWith('token', { chatId: 'g1', video: false });
+      await press(tree, 'Video call');
+      expect(callApi.start).toHaveBeenLastCalledWith('token', { chatId: 'g1', video: true });
     });
   });
 
@@ -297,12 +350,14 @@ describe('Chat screen', () => {
     await settle();
   });
 
-  it('goes back, and the call button says calling is coming soon', async () => {
+  it('goes back, and the call button starts a call (the server decides if it is allowed)', async () => {
     api.messages.mockResolvedValueOnce(page([]));
+    (callApi.start as jest.Mock).mockRejectedValueOnce(new ApiError(409, 'COACH_UNAVAILABLE', 'This coach is not available for calls right now.'));
     const tree = await render(<Chat {...screenProps('Chat', { chat: CHAT })} />);
     await press(tree, 'Back to messages');
     expect(navigationMock.goBack).toHaveBeenCalled();
     await press(tree, 'Audio call');
-    expect(lastToast()).toMatchObject({ message: 'Calling Amara Okafor is coming soon.', tone: 'info' });
+    expect(callApi.start).toHaveBeenCalledWith('token', { chatId: CHAT.id, video: false });
+    expect(lastToast()).toMatchObject({ message: 'This coach is not available for calls right now.', tone: 'error' });
   });
 });

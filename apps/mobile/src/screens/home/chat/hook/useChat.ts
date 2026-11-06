@@ -5,15 +5,15 @@ import { AppState } from 'react-native';
 import { SOCKET_EVENTS } from '@coach-connect/shared/realtime';
 import type { ChatReadPayload, MessageNewPayload } from '@coach-connect/shared/realtime';
 import { chatApi, ChatMessage, ChatSummary } from '@/src/service/api/chat.api';
+import { useCallActions } from '@/src/service/call/useCallActions';
+import { applyMessageNew, applyMyRead } from '@/src/service/chats/chatsCache';
+import { patchChatsCache } from '@/src/service/chats/chatsQuery';
 import { withAuth } from '@/src/service/setup/withAuth';
 import { ApiError } from '@/src/service/setup/apiClient';
 import { showApiError } from '@/src/service/setup/handleApiError';
 import { getSocket } from '@/src/service/socket/socket';
 import { useActiveChatStore } from '@/src/store/activeChat.store';
 import { useAuthStore } from '@/src/store/auth.store';
-import { showToast } from '@/src/store/toast.store';
-import { applyMyRead } from '../../messages/chatsCache';
-import { patchChatsCache } from '../../messages/hook/useUnreadTotal';
 
 /** A message as the screen sees it: one that is saved, or one still on its way (or that failed). */
 export interface ChatItem extends Omit<ChatMessage, 'id' | 'sequenceNumber' | 'senderName'> {
@@ -185,6 +185,10 @@ function useChatMessages(chatId: string, meId: string, initialCanSend: boolean) 
       try {
         const { message } = await withAuth((t) => chatApi.send(t, chatId, { clientMessageId, body }));
         absorb([message]);
+        // Update the Messages list from this answer too (preview, order, unread), not only from the socket echo: with the live
+        // connection down the list would otherwise stay old until its next reload. The echo that may follow is a no-op:
+        // applyMessageNew ignores a message number it already holds (and a retry's `duplicate: true` answer too).
+        patchChatsCache(queryClient, (chats) => applyMessageNew(chats, { chatId, message }, meId, useActiveChatStore.getState().chatId));
       } catch (e) {
         if (e instanceof ApiError && e.code === 'CANNOT_MESSAGE') {
           // The chat was closed under us (the other person was banned): retrying is pointless, so drop the unsent
@@ -197,7 +201,7 @@ function useChatMessages(chatId: string, meId: string, initialCanSend: boolean) 
         showApiError(e);
       }
     },
-    [chatId, absorb],
+    [chatId, meId, queryClient, absorb],
   );
 
   const send = useCallback(
@@ -231,6 +235,7 @@ export function useChat(chat: ChatSummary) {
   const meId = useAuthStore((s) => s.user?.id ?? '');
   const messages = useChatMessages(chat.id, meId, chat.canSend);
   const isGroup = chat.type === 'GROUP';
+  const calls = useCallActions();
 
   return {
     ...messages,
@@ -242,7 +247,9 @@ export function useChat(chat: ChatSummary) {
     other: chat.other,
     memberCount: chat.memberCount,
     goBack: () => navigation.goBack(),
-    call: () => showToast(isGroup ? 'Group calls are coming soon.' : `Calling ${chat.title} is coming soon.`, 'info'),
+    /** Voice call / video call in this chat (a group call rings everybody in the group). The server decides if it is allowed. */
+    call: () => calls.start(chat.id, false),
+    videoCall: () => calls.start(chat.id, true),
     /** Group chats: open the screen with the description and the people. */
     openInfo: () => navigation.navigate('GroupInfo', { chatId: chat.id, title: chat.title }),
   };

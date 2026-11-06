@@ -1,4 +1,4 @@
-import { applyMessageNew, applyMyRead, removeChat, totalUnread } from '@/src/screens/home/messages/chatsCache';
+import { applyMessageNew, applyMyRead, removeChat, totalUnread } from '@/src/service/chats/chatsCache';
 import type { ChatSummary } from '@/src/service/api/chat.api';
 import { chatSummary } from '../../test-utils/chat';
 import type { MessageNewPayload } from '@coach-connect/shared/realtime';

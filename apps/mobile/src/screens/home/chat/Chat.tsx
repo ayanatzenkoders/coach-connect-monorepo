@@ -1,8 +1,9 @@
 import React, { memo, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BackIcon, CustomAvatar, CustomConnectionBanner, PhoneIcon, SendIcon } from '@/src/components';
+import { CustomAvatar, CustomConnectionBanner, CustomHeader, PhoneIcon, SendIcon, VideoIcon } from '@/src/components';
 import { COLORS, MAX_FONT_SCALE, MESSAGE_MAX_LENGTH, MIN_TOUCH } from '@/src/constants';
+import { CallBanner } from '@/src/screens/call/CallBanner';
 import { useKeyboardVisible } from '@/src/utils/hooks/useKeyboardVisible';
 import type { RootStackScreenProps } from '@/src/utils/types';
 import { ChatItem, useChat } from './hook/useChat';
@@ -11,7 +12,6 @@ type Props = RootStackScreenProps<'Chat'>;
 
 /** Screen 10: one chat. Newest message at the bottom; the list is "inverted" so it starts there. */
 const Chat: React.FC<Props> = ({ route }) => {
-  const insets = useSafeAreaInsets();
   const chat = useChat(route.params.chat);
   const meId = chat.meId;
 
@@ -32,10 +32,19 @@ const Chat: React.FC<Props> = ({ route }) => {
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Back to messages" onPress={chat.goBack} style={styles.headerButton}>
-          <BackIcon />
-        </Pressable>
+      <CustomHeader
+        onBack={chat.goBack}
+        backLabel="Back to messages"
+        right={
+          <>
+            <Pressable accessibilityRole="button" accessibilityLabel="Video call" onPress={chat.videoCall} style={styles.headerButton}>
+              <VideoIcon color={COLORS.primary} />
+            </Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="Audio call" onPress={chat.call} style={styles.headerButton}>
+              <PhoneIcon color={COLORS.primary} />
+            </Pressable>
+          </>
+        }>
         {/* A group's name and avatar open its info (description and people). A direct chat's header is just the person. */}
         <Pressable
           accessibilityRole={chat.isGroup ? 'button' : undefined}
@@ -53,12 +62,11 @@ const Chat: React.FC<Props> = ({ route }) => {
             </Text>
           </View>
         </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Audio call" onPress={chat.call} style={styles.headerButton}>
-          <PhoneIcon color={COLORS.primary} />
-        </Pressable>
-      </View>
+      </CustomHeader>
 
       <CustomConnectionBanner />
+      {/* CALLS: "Call in progress, Join / Return" while this chat has a live call. */}
+      <CallBanner chatId={route.params.chat.id} />
 
       {chat.loading ? (
         <ActivityIndicator accessibilityLabel="Loading messages" color={COLORS.primary} style={styles.loader} />
@@ -178,7 +186,6 @@ const Bubble = memo(function BubbleRow({ item, mine, meta, senderName, onRetry }
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: COLORS.background },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 4, paddingBottom: 10, backgroundColor: COLORS.surface, borderBottomWidth: 1, borderBottomColor: COLORS.divider },
   headerButton: { width: MIN_TOUCH, height: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' },
   who: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0 },
   headerText: { flex: 1, minWidth: 0 },
