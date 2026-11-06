@@ -23,7 +23,8 @@
     "db:reset": "prisma migrate reset",
     "prebuild": "prisma generate",
     "postinstall": "prisma generate",
-    "mail:test": "tsx scripts/send-test-mail.ts"
+    "mail:test": "tsx scripts/send-test-mail.ts",
+    "livekit:rooms": "tsx scripts/livekit-rooms.ts"
   },
   "dependencies": {
     "@coach-connect/shared": "workspace:*",
