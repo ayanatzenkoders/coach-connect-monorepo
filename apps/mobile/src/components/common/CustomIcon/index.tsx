@@ -1,8 +1,9 @@
 import React from 'react';
 import Svg, { Path } from 'react-native-svg';
+import { COLORS } from '@/src/constants';
 
 /** Small stroke icons from the design. They take their color from the `color` prop. */
-export function BackIcon({ color = '#141A17', size = 24 }: { color?: string; size?: number }) {
+export function BackIcon({ color = COLORS.ink, size = 24 }: { color?: string; size?: number }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Path d="M15 5l-7 7 7 7" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
@@ -10,7 +11,7 @@ export function BackIcon({ color = '#141A17', size = 24 }: { color?: string; siz
   );
 }
 
-export function CheckIcon({ color = '#174A3D', size = 18 }: { color?: string; size?: number }) {
+export function CheckIcon({ color = COLORS.primaryPressed, size = 18 }: { color?: string; size?: number }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Path d="M5 12.5l4.5 4.5L19 7.5" stroke={color} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
@@ -18,7 +19,7 @@ export function CheckIcon({ color = '#174A3D', size = 18 }: { color?: string; si
   );
 }
 
-export function DotIcon({ color = '#646B66', size = 18 }: { color?: string; size?: number }) {
+export function DotIcon({ color = COLORS.inkMuted, size = 18 }: { color?: string; size?: number }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Path d="M12 12h.01" stroke={color} strokeWidth={5} strokeLinecap="round" />
@@ -29,7 +30,7 @@ export function DotIcon({ color = '#646B66', size = 18 }: { color?: string; size
 type IconProps = { color?: string; size?: number };
 
 /** One 24x24 stroke icon; the shapes are plain SVG path strings. */
-function StrokeIcon({ d, color = '#141A17', size = 24, width = 2 }: IconProps & { d: string[]; width?: number }) {
+function StrokeIcon({ d, color = COLORS.ink, size = 24, width = 2 }: IconProps & { d: string[]; width?: number }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       {d.map((path) => (
@@ -61,3 +62,12 @@ export const EyeOffIcon = (p: IconProps) => (
 );
 export const PlusIcon = (p: IconProps) => <StrokeIcon {...p} d={['M12 5v14', 'M5 12h14']} />;
 export const SendIcon = (p: IconProps) => <StrokeIcon {...p} d={['M22 2L11 13', 'M22 2l-7 20-4-9-9-4 20-7z']} />;
+
+// Calls
+export const VideoIcon = (p: IconProps) => <StrokeIcon {...p} d={['M23 7l-7 5 7 5V7z', 'M3 5h11a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z']} />;
+export const VideoOffIcon = (p: IconProps) => <StrokeIcon {...p} d={['M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m5.66 0H14a2 2 0 0 1 2 2v3.34l1 1L23 7v10', 'M1 1l22 22']} />;
+export const MicIcon = (p: IconProps) => <StrokeIcon {...p} d={['M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z', 'M19 10v2a7 7 0 0 1-14 0v-2', 'M12 19v4', 'M8 23h8']} />;
+export const MicOffIcon = (p: IconProps) => (
+  <StrokeIcon {...p} d={['M1 1l22 22', 'M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6', 'M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23', 'M12 19v4', 'M8 23h8']} />
+);
+export const SpeakerIcon = (p: IconProps) => <StrokeIcon {...p} d={['M11 5L6 9H2v6h4l5 4V5z', 'M19.07 4.93a10 10 0 0 1 0 14.14', 'M15.54 8.46a5 5 0 0 1 0 7.07']} />;

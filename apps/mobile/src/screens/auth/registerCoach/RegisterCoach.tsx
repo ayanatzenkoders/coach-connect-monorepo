@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { BackIcon, CustomButton, CustomPasswordChecklist, CustomTextInput, CustomWrapper } from '@/src/components';
-import { COACH_SPECIALTIES, COLORS, MAX_FONT_SCALE, MIN_TOUCH, SPACING, TEXT } from '@/src/constants';
+import { CustomBackButton, CustomButton, CustomPasswordChecklist, CustomTextInput, CustomWrapper } from '@/src/components';
+import { COACH_SPECIALTIES, COLORS, MAX_FONT_SCALE, SPACING, TEXT } from '@/src/constants';
 import type { RootStackScreenProps } from '@/src/utils/types';
 import { useRegisterCoach } from './hook/useRegisterCoach';
 
@@ -13,9 +13,7 @@ const RegisterCoach: React.FC<Props> = () => {
 
   return (
     <CustomWrapper scroll keyboardAvoidingView topInset={false} contentStyle={styles.content}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={s.goBack} style={styles.back}>
-        <BackIcon />
-      </Pressable>
+      <CustomBackButton label="Back" onPress={s.goBack} alignToEdge />
 
       <View style={styles.header}>
         <Text accessibilityRole="header" maxFontSizeMultiplier={MAX_FONT_SCALE.title} style={TEXT.title}>
@@ -95,7 +93,6 @@ export default RegisterCoach;
 
 const styles = StyleSheet.create({
   content: { paddingHorizontal: SPACING.xl, paddingTop: 56, paddingBottom: 40, gap: SPACING.xl },
-  back: { width: MIN_TOUCH, height: MIN_TOUCH, marginLeft: -10, alignItems: 'center', justifyContent: 'center' },
   header: { gap: SPACING.sm },
   form: { gap: SPACING.lg },
   field: { gap: 6 },

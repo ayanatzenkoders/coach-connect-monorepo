@@ -1,14 +1,21 @@
 import React from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { CheckIcon, CustomAvatar, SearchIcon } from '@/src/components';
+import { CheckIcon, CustomAvatar, CustomSegmentedControl, SearchIcon } from '@/src/components';
 import { COLORS, MAX_FONT_SCALE, RADIUS, SPACING, TEXT } from '@/src/constants';
 import type { Person } from '@/src/service/api/people.api';
 import type { usePeoplePicker } from './hook/usePeoplePicker';
 
 type Picker = ReturnType<typeof usePeoplePicker>;
 
+const KIND_OPTIONS = [
+  { value: 'members', label: 'Members', accessibilityLabel: 'Pick from members' },
+  { value: 'coaches', label: 'Coaches', accessibilityLabel: 'Pick from coaches' },
+] as const;
+
 export const keyOfPerson = (person: Person) => person.id;
-export const Divider = () => <View style={styles.divider} />;
+export function Divider() {
+  return <View style={styles.divider} />;
+}
 
 /** What shows under the form while picking people: the count, the chosen chips, Coaches/Members and the search box. */
 export function PickerControls({ picker, summary, needsMore }: { picker: Picker; summary: string; needsMore: boolean }) {
@@ -34,23 +41,7 @@ export function PickerControls({ picker, summary, needsMore }: { picker: Picker;
         )}
       </View>
 
-      {picker.canPickCoaches && (
-        <View accessibilityRole="tablist" style={styles.segments}>
-          {(['members', 'coaches'] as const).map((k) => (
-            <Pressable
-              key={k}
-              accessibilityRole="tab"
-              accessibilityLabel={k === 'coaches' ? 'Pick from coaches' : 'Pick from members'}
-              accessibilityState={{ selected: picker.kind === k }}
-              onPress={() => picker.setKind(k)}
-              style={[styles.segment, picker.kind === k && styles.segmentOn]}>
-              <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.segmentText}>
-                {k === 'coaches' ? 'Coaches' : 'Members'}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
+      {picker.canPickCoaches && <CustomSegmentedControl options={KIND_OPTIONS} value={picker.kind} onChange={picker.setKind} />}
 
       <View>
         <View style={styles.searchIcon} pointerEvents="none">
@@ -73,10 +64,13 @@ export function PickerControls({ picker, summary, needsMore }: { picker: Picker;
   );
 }
 
-export const PickEmpty = ({ loading }: { loading: boolean }) =>
-  loading ? <ActivityIndicator accessibilityLabel="Loading people" color={COLORS.primary} style={styles.loader} /> : <Text style={styles.empty}>No one found.</Text>;
+export function PickEmpty({ loading }: { loading: boolean }) {
+  return loading ? <ActivityIndicator accessibilityLabel="Loading people" color={COLORS.primary} style={styles.loader} /> : <Text style={styles.empty}>No one found.</Text>;
+}
 
-export const PickFooter = ({ loadingMore }: { loadingMore: boolean }) => (loadingMore ? <ActivityIndicator color={COLORS.primary} style={styles.loader} /> : null);
+export function PickFooter({ loadingMore }: { loadingMore: boolean }) {
+  return loadingMore ? <ActivityIndicator color={COLORS.primary} style={styles.loader} /> : null;
+}
 
 /** One person to pick: a check circle on the right. A row that would break a rule is dimmed and says why. */
 export function PickRow({ person, chosen, disabledReason, onPress }: { person: Person; chosen: boolean; disabledReason: string | null; onPress: (person: Person) => void }) {
@@ -109,10 +103,6 @@ const styles = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
   chip: { maxWidth: '100%', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: COLORS.primaryTint },
   chipText: { fontSize: 14, fontWeight: '600', color: COLORS.primaryPressed },
-  segments: { flexDirection: 'row', padding: 4, borderRadius: RADIUS.control, backgroundColor: '#E4E7E1', gap: 4 },
-  segment: { flex: 1, height: 40, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  segmentOn: { backgroundColor: COLORS.surface },
-  segmentText: { fontSize: 15, fontWeight: '600', color: COLORS.ink },
   searchIcon: { position: 'absolute', left: 14, top: 0, bottom: 0, justifyContent: 'center', zIndex: 1 },
   search: { height: 48, borderWidth: 1, borderColor: COLORS.border, borderRadius: RADIUS.control, paddingLeft: 44, paddingRight: SPACING.lg, backgroundColor: COLORS.surface, color: COLORS.ink, fontSize: 16 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: COLORS.surface },

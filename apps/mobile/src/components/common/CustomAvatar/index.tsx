@@ -1,16 +1,8 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { COLORS } from '@/src/constants';
+import { AVATAR_TINTS, COLORS } from '@/src/constants';
 
 import type { CustomAvatarProps } from './interface';
-
-/** Soft background + dark letters, so every person gets a steady colour of their own. */
-const TINTS = [
-  { bg: '#E3EDE8', ink: '#174A3D' },
-  { bg: '#F7EBDD', ink: '#7F3D0A' },
-  { bg: '#E4E8F4', ink: '#2A3B7A' },
-  { bg: '#F3E3EA', ink: '#7A2A4B' },
-];
 
 /**
  * Up to two initials from the first two words that start with a letter or digit.
@@ -28,7 +20,7 @@ export const initialsOf = (name: string) =>
     .join('') || '?';
 
 /** Same id -> same colour, every time (a tiny hash of the id picks the tint). */
-const tintFor = (id: string) => TINTS[[...id].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % TINTS.length];
+const tintFor = (id: string) => AVATAR_TINTS[[...id].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % AVATAR_TINTS.length];
 
 export function CustomAvatar({ id, name, online, size = 48 }: CustomAvatarProps) {
   const tint = tintFor(id);
@@ -48,6 +40,6 @@ const styles = StyleSheet.create({
   circle: { alignItems: 'center', justifyContent: 'center' },
   letters: { fontWeight: '700' },
   dotOnline: { backgroundColor: COLORS.primary },
-  dotOffline: { backgroundColor: '#8C938E' },
+  dotOffline: { backgroundColor: COLORS.inkDisabled },
   dot: { position: 'absolute', right: 0, bottom: 0, width: 13, height: 13, borderRadius: 7, borderWidth: 2, borderColor: COLORS.surface },
 });

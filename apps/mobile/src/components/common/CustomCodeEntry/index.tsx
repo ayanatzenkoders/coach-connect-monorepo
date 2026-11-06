@@ -1,8 +1,8 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { MIN_TOUCH, SPACING, TEXT } from '@/src/constants';
+import { StyleSheet, Text, View } from 'react-native';
+import { SPACING, TEXT } from '@/src/constants';
 import { CustomButton } from '@/src/components/common/CustomButton';
-import { BackIcon } from '@/src/components/common/CustomIcon';
+import { CustomBackButton } from '@/src/components/common/CustomBackButton';
 import { CustomOTPInput } from '@/src/components/common/CustomOTPInput';
 import { CustomResendRow } from '@/src/components/common/CustomResendRow';
 import CustomWrapper from '@/src/components/wrappers/CustomWrapper';
@@ -18,9 +18,7 @@ export function CustomCodeEntry({ title, description, onSendCode, sendOnOpen, in
 
   return (
     <CustomWrapper topInset={false} contentStyle={styles.container}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={onBack} style={styles.back}>
-        <BackIcon />
-      </Pressable>
+      <CustomBackButton label="Back" onPress={onBack} alignToEdge />
 
       <View style={styles.header}>
         <Text accessibilityRole="header" style={TEXT.title}>
@@ -46,7 +44,6 @@ export function CustomCodeEntry({ title, description, onSendCode, sendOnOpen, in
 
 const styles = StyleSheet.create({
   container: { paddingHorizontal: SPACING.xl, paddingTop: 56, paddingBottom: 40, gap: SPACING.xl },
-  back: { width: MIN_TOUCH, height: MIN_TOUCH, marginLeft: -10, alignItems: 'center', justifyContent: 'center' },
   header: { gap: SPACING.sm },
   legend: { marginBottom: 10 },
   bottom: { marginTop: 'auto', minHeight: 52 },

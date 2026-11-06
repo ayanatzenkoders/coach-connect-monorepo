@@ -1,7 +1,7 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { BackIcon, CustomButton, CustomPasswordChecklist, CustomTextInput, CustomWrapper } from '@/src/components';
-import { COLORS, MIN_TOUCH, SPACING, MAX_FONT_SCALE, TEXT } from '@/src/constants';
+import { StyleSheet, Text, View } from 'react-native';
+import { CustomBackButton, CustomButton, CustomPasswordChecklist, CustomTextInput, CustomWrapper } from '@/src/components';
+import { COLORS, SPACING, MAX_FONT_SCALE, TEXT } from '@/src/constants';
 import type { RootStackScreenProps } from '@/src/utils/types';
 import { useNewPassword } from './hook/useNewPassword';
 
@@ -13,9 +13,7 @@ const NewPassword: React.FC<Props> = ({ route }) => {
 
   return (
     <CustomWrapper scroll keyboardAvoidingView topInset={false} contentStyle={styles.content}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={s.goBack} style={styles.back}>
-        <BackIcon />
-      </Pressable>
+      <CustomBackButton label="Back" onPress={s.goBack} alignToEdge />
 
       <View style={styles.header}>
         <Text accessibilityRole="header" maxFontSizeMultiplier={MAX_FONT_SCALE.title} style={TEXT.title}>
@@ -52,7 +50,6 @@ export default NewPassword;
 
 const styles = StyleSheet.create({
   content: { paddingHorizontal: SPACING.xl, paddingTop: 56, paddingBottom: 40, gap: SPACING.xl },
-  back: { width: MIN_TOUCH, height: MIN_TOUCH, marginLeft: -10, alignItems: 'center', justifyContent: 'center' },
   header: { gap: SPACING.sm },
   bottom: { marginTop: 'auto', gap: SPACING.md },
   note: { fontSize: 13, color: COLORS.inkSecondary, textAlign: 'center' },

@@ -1,8 +1,8 @@
 import React from 'react';
-import { FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BackIcon, CustomButton } from '@/src/components';
-import { COLORS, MAX_FONT_SCALE, MIN_TOUCH, SPACING } from '@/src/constants';
+import { CustomButton, CustomHeader } from '@/src/components';
+import { COLORS, SPACING } from '@/src/constants';
 import type { RootStackScreenProps } from '@/src/utils/types';
 import { useKeyboardVisible } from '@/src/utils/hooks/useKeyboardVisible';
 import { Divider, keyOfPerson, PickEmpty, PickFooter, PickerControls, PickRow } from '../newGroup/PickerParts';
@@ -18,14 +18,7 @@ const AddMembers: React.FC<Props> = ({ route }) => {
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={g.goBack} style={styles.back}>
-          <BackIcon />
-        </Pressable>
-        <Text accessibilityRole="header" maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.headerTitle}>
-          Add people
-        </Text>
-      </View>
+      <CustomHeader title="Add people" onBack={g.goBack} />
 
       <FlatList
         data={g.people}
@@ -57,9 +50,6 @@ export default AddMembers;
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: COLORS.background },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4, paddingBottom: 10, backgroundColor: COLORS.surface, borderBottomWidth: 1, borderBottomColor: COLORS.divider },
-  back: { width: MIN_TOUCH, height: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontSize: 18, fontWeight: '600', color: COLORS.ink },
   list: { paddingBottom: SPACING.lg, flexGrow: 1 },
   form: { padding: 20, gap: SPACING.lg },
   bottom: { paddingHorizontal: 20, paddingTop: SPACING.md, backgroundColor: COLORS.surface, borderTopWidth: 1, borderTopColor: COLORS.divider },

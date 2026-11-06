@@ -1,10 +1,15 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CustomPersonRow, SearchIcon } from '@/src/components';
+import { CustomPersonRow, CustomSegmentedControl, SearchIcon } from '@/src/components';
 import { COLORS, MAX_FONT_SCALE, SPACING, TEXT } from '@/src/constants';
 import type { Person } from '@/src/service/api/people.api';
 import { usePeople } from './hook/usePeople';
+
+const KIND_OPTIONS = [
+  { value: 'coaches', label: 'Coaches' },
+  { value: 'members', label: 'Members' },
+] as const;
 
 /** Screen 07: the Coaches / Members tabs, search, coach filters and the list. */
 const People: React.FC = () => {
@@ -31,21 +36,7 @@ const People: React.FC = () => {
           People
         </Text>
 
-        <View accessibilityRole="tablist" style={styles.segments}>
-          {(['coaches', 'members'] as const).map((k) => (
-            <Pressable
-              key={k}
-              accessibilityRole="tab"
-              accessibilityLabel={k === 'coaches' ? 'Coaches' : 'Members'}
-              accessibilityState={{ selected: p.kind === k }}
-              onPress={() => p.setKind(k)}
-              style={[styles.segment, p.kind === k && styles.segmentOn]}>
-              <Text maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.segmentText}>
-                {k === 'coaches' ? 'Coaches' : 'Members'}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        <CustomSegmentedControl options={KIND_OPTIONS} value={p.kind} onChange={p.setKind} />
 
         <View>
           <View style={styles.searchIcon} pointerEvents="none">
@@ -144,10 +135,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: COLORS.background },
   header: { paddingHorizontal: 20, paddingBottom: 12, gap: 14 },
   title: { fontSize: 32, fontWeight: '600', letterSpacing: -0.64, color: COLORS.ink },
-  segments: { flexDirection: 'row', padding: 4, borderRadius: 12, backgroundColor: '#E4E7E1', gap: 4 },
-  segment: { flex: 1, height: 40, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  segmentOn: { backgroundColor: COLORS.surface, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
-  segmentText: { fontSize: 15, fontWeight: '600', color: COLORS.ink },
   searchIcon: { position: 'absolute', left: 14, top: 0, bottom: 0, justifyContent: 'center', zIndex: 1 },
   search: {
     height: 48,

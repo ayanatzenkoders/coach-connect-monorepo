@@ -1,7 +1,7 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { BackIcon, CustomButton, CustomTextInput, CustomWrapper } from '@/src/components';
-import { COLORS, MIN_TOUCH, RADIUS, SPACING, MAX_FONT_SCALE, TEXT } from '@/src/constants';
+import { StyleSheet, Text, View } from 'react-native';
+import { CustomBackButton, CustomButton, CustomTextInput, CustomWrapper } from '@/src/components';
+import { COLORS, RADIUS, SPACING, MAX_FONT_SCALE, TEXT } from '@/src/constants';
 import type { RootStackScreenProps } from '@/src/utils/types';
 import { useForgotPassword } from './hook/useForgotPassword';
 
@@ -13,9 +13,7 @@ const ForgotPassword: React.FC<Props> = () => {
 
   return (
     <CustomWrapper scroll keyboardAvoidingView topInset={false} contentStyle={styles.content}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Back to sign in" onPress={s.goBack} style={styles.back}>
-        <BackIcon />
-      </Pressable>
+      <CustomBackButton label="Back to sign in" onPress={s.goBack} alignToEdge />
 
       <View style={styles.header}>
         <Text accessibilityRole="header" maxFontSizeMultiplier={MAX_FONT_SCALE.title} style={TEXT.title}>
@@ -58,7 +56,6 @@ export default ForgotPassword;
 
 const styles = StyleSheet.create({
   content: { paddingHorizontal: SPACING.xl, paddingTop: 56, paddingBottom: 40, gap: SPACING.xl },
-  back: { width: MIN_TOUCH, height: MIN_TOUCH, marginLeft: -10, alignItems: 'center', justifyContent: 'center' },
   header: { gap: SPACING.sm },
   form: { gap: SPACING.lg },
   notFound: { backgroundColor: COLORS.warningTint, borderRadius: RADIUS.control, padding: SPACING.lg, gap: SPACING.md },

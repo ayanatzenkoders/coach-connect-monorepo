@@ -1,8 +1,8 @@
 import React from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BackIcon, CustomAvatar, CustomButton, PhoneIcon } from '@/src/components';
-import { COLORS, MAX_FONT_SCALE, MIN_TOUCH, RADIUS, SPACING, TEXT } from '@/src/constants';
+import { CustomAvatar, CustomButton, CustomHeader, PhoneIcon } from '@/src/components';
+import { COLORS, MAX_FONT_SCALE, RADIUS, SPACING, TEXT } from '@/src/constants';
 import type { ChatMemberInfo } from '@/src/service/api/chat.api';
 import type { RootStackScreenProps } from '@/src/utils/types';
 import { useGroupInfo } from './hook/useGroupInfo';
@@ -17,14 +17,7 @@ const GroupInfo: React.FC<Props> = ({ route }) => {
 
   return (
     <View style={styles.flex}>
-      <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={g.goBack} style={styles.back}>
-          <BackIcon />
-        </Pressable>
-        <Text accessibilityRole="header" maxFontSizeMultiplier={MAX_FONT_SCALE.control} style={styles.headerTitle}>
-          Group info
-        </Text>
-      </View>
+      <CustomHeader title="Group info" onBack={g.goBack} />
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, SPACING.xl) }]}>
         <View style={styles.identity}>
@@ -112,9 +105,6 @@ function MemberRow({ member, isMe }: { member: ChatMemberInfo; isMe: boolean }) 
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: COLORS.background },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4, paddingBottom: 10, backgroundColor: COLORS.surface, borderBottomWidth: 1, borderBottomColor: COLORS.divider },
-  back: { width: MIN_TOUCH, height: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontSize: 18, fontWeight: '600', color: COLORS.ink },
   content: { padding: 20, gap: SPACING.lg },
   identity: { alignItems: 'center', gap: 6, paddingVertical: SPACING.sm },
   title: { fontSize: 22, fontWeight: '600', color: COLORS.ink, textAlign: 'center', marginTop: SPACING.sm },

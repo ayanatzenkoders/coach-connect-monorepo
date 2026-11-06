@@ -15,7 +15,7 @@ const SignIn: React.FC<Props> = ({ route }) => {
     <CustomWrapper scroll keyboardAvoidingView topInset={false} contentStyle={styles.content}>
       <View style={styles.header}>
         <View style={styles.logo}>
-          <CustomLogo size={30} outer="#FFFFFF" inner="#FFFFFF" dot="#FFFFFF" />
+          <CustomLogo size={30} outer={COLORS.onPrimary} inner={COLORS.onPrimary} dot={COLORS.onPrimary} />
         </View>
         <Text accessibilityRole="header" maxFontSizeMultiplier={MAX_FONT_SCALE.title} style={[TEXT.title, styles.title]}>
           Welcome back

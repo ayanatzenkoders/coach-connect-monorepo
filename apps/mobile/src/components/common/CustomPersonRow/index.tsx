@@ -59,7 +59,7 @@ export const CustomPersonRow = memo(function PersonRow({ person, onMessage, onCa
         disabled={!callable}
         onPress={() => onCall(person)}
         style={[styles.iconButton, callable ? styles.callEnabled : styles.callDisabled]}>
-        <PhoneIcon color={callable ? COLORS.primary : '#8C938E'} />
+        <PhoneIcon color={callable ? COLORS.primary : COLORS.inkDisabled} />
       </Pressable>
     </View>
   );
@@ -89,5 +89,5 @@ const styles = StyleSheet.create({
   status: { fontSize: 13, fontWeight: '600' },
   iconButton: { width: MIN_TOUCH, height: MIN_TOUCH, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   callEnabled: { borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface },
-  callDisabled: { borderWidth: 1, borderColor: '#E4E7E1', backgroundColor: COLORS.background },
+  callDisabled: { borderWidth: 1, borderColor: COLORS.surfaceMuted, backgroundColor: COLORS.background },
 });
