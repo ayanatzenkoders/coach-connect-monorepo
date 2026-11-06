@@ -12,6 +12,8 @@ export const navigationMock = {
   dispatch: jest.fn(),
   // True = this screen is the one on top. A test sets it false to pretend the screen was already closed.
   isFocused: jest.fn(() => true),
+  // True = there is a screen to go back to.
+  canGoBack: jest.fn(() => true),
 };
 
 /** What `useIsFocused()` answers. Set `focusState.focused = false` to pretend another screen is on top. */
@@ -20,6 +22,7 @@ export const focusState = { focused: true };
 export const resetNavigationMock = () => {
   Object.values(navigationMock).forEach((fn) => fn.mockReset());
   navigationMock.isFocused.mockImplementation(() => true);
+  navigationMock.canGoBack.mockImplementation(() => true);
   focusState.focused = true;
 };
 

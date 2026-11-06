@@ -11,7 +11,7 @@ import { clearTokens, getOrCreateDeviceId, loadTokens, saveTokens } from '@/src/
  *  - signedIn:  show the main app
  *  - offline:   we have a saved login but could not reach the server (do NOT sign the user out)
  */
-type AuthStatus = 'booting' | 'signedOut' | 'signedIn' | 'offline';
+export type AuthStatus = 'booting' | 'signedOut' | 'signedIn' | 'offline';
 
 /** Why the user landed on the sign-in screen, so it can show a message. */
 type SignedOutReason = 'banned' | 'expired' | null;

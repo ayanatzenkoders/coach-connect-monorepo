@@ -18,7 +18,7 @@ const FINISH_DELAY_MS = 450;
  * The bar is determinate: it climbs toward 85% while we wait (we never know how long the
  * check takes), then jumps to 100% when the app is ready.
  */
-export function Splash({ ready, onFinish, message = 'Getting things ready…' }: Props) {
+export default function Splash({ ready, onFinish, message = 'Getting things ready…' }: Props) {
   const intro = useRef(new Animated.Value(0)).current; // logo + name appear
   const progress = useRef(new Animated.Value(0)).current; // 0..1
 
@@ -76,7 +76,7 @@ const styles = StyleSheet.create({
   tile: { width: 88, height: 88, borderRadius: 26, backgroundColor: COLORS.background, alignItems: 'center', justifyContent: 'center' },
   name: { color: COLORS.onPrimary, fontSize: 30, fontWeight: '700', letterSpacing: -0.3 },
   bottom: { alignItems: 'center', gap: 14 },
-  track: { width: 120, height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.22)', overflow: 'hidden' },
+  track: { width: 120, height: 3, borderRadius: 2, backgroundColor: COLORS.onPrimaryTrack, overflow: 'hidden' },
   bar: { width: 120, height: 3, backgroundColor: COLORS.onPrimary, transformOrigin: 'left' },
-  message: { color: '#D3E3DC', fontSize: 14 },
+  message: { color: COLORS.onPrimaryMuted, fontSize: 14 },
 });

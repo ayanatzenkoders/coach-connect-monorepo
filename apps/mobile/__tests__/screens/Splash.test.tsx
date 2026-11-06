@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
-import { Splash } from '@/src/screens/system/splash/Splash';
+import Splash from '@/src/screens/system/splash/Splash';
 
 const texts = (t: ReactTestRenderer.ReactTestRenderer) =>
   t.root.findAll((n) => typeof n.props.children === 'string').map((n) => n.props.children as string);

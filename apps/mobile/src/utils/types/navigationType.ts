@@ -22,6 +22,8 @@ export type RootStackParamList = {
   Chat: { chat: ChatSummary };
   NewGroup: undefined;
   GroupInfo: { chatId: string; title: string };
+  // The call I am in (its state lives in call.store)
+  Call: undefined;
   AddMembers: { chatId: string; memberIds: string[]; memberCount: number; hasCoach: boolean };
 };
 

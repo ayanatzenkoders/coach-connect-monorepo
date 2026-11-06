@@ -34,6 +34,18 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<!-- iOS asks permission before an app talks to other devices on the Wi-Fi (your Mac running the API and Metro while developing) -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Coach Connect connects to the development server on your network.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Coach Connect uses the microphone so you can talk during calls.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Coach Connect uses the camera for video calls.</string>
+	<!-- audio: a call keeps working when you leave the app or lock the screen -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

@@ -37,3 +37,22 @@ export const chatMessage = (sequenceNumber: number, senderId: string, body: stri
   createdAt: '2026-10-27T10:00:00.000Z',
   ...over,
 });
+
+/** A call for tests. Ann (id "ann") started it and is in it; Ben ("ben") is being rung. Override what the test is about. */
+export const callInfo = (over: Partial<import('@/src/service/api/call.api').CallInfo> = {}): import('@/src/service/api/call.api').CallInfo => ({
+  id: 'call-1',
+  chatId: 'chat-1',
+  startedById: 'ann',
+  startedByName: 'Ann',
+  state: 'RINGING',
+  endReason: null,
+  video: false,
+  createdAt: '2026-10-30T10:00:00.000Z',
+  answeredAt: null,
+  endedAt: null,
+  participants: [
+    { userId: 'ann', name: 'Ann', status: 'JOINED', joinedAt: '2026-10-30T10:00:00.000Z', leftAt: null },
+    { userId: 'ben', name: 'Ben', status: 'INVITED', joinedAt: null, leftAt: null },
+  ],
+  ...over,
+});
