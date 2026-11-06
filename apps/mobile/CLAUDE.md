@@ -2,9 +2,11 @@
 
 Read the root [knowledge.md](../../knowledge.md) section 8b first (folders, screen pattern, test setup).
 
-- Folder layout: `src/{components,constants,navigations,screens,service,store,utils}`. Screens are `screens/<module>/<screen>/<Screen>.tsx` (UI only) + `hook/use<Screen>.tsx` (all logic).
+- Folder layout: `src/{components,constants,navigations,screens,service,store,utils}`. Screens are `screens/<module>/<screen>/<Screen>.tsx` (UI only) + `hook/use<Screen>.ts` (all logic; `.ts`, a hook has no JSX). Logic shared by several screens (chat-list cache helpers, call hooks) lives in `service/`, never inside one screen's folder..
+- `App.tsx` = providers only. Start-up and session logic live in `src/navigations/` (`Root.tsx`, `RootStack.tsx`, `stage.ts`, `hook/`); the one React Query client is `src/service/setup/queryClient.ts` and is emptied on sign-out.
 - Shared UI is `components/common/Custom<Name>/index.tsx` + `interface.ts`, exported from `src/components/index.ts`. Import with the alias: `@/src/components`.
-- Theme: `COLORS`, `SPACING`, `RADIUS`, `TEXT` from `@/src/constants`. No raw hex values in screens.
+- Theme: `COLORS`, `SPACING`, `RADIUS`, `TEXT` from `@/src/constants`. No raw hex or rgba() values anywhere outside `constants/theme/colors.ts` (an ESLint rule enforces it): add a named token instead.
+- Components: screens are default-exported `React.FC` consts; every other component is a named `function`. Reuse `CustomHeader` / `CustomBackButton` / `CustomSegmentedControl` instead of drawing a header or a tab switch again.
 - Lists use `FlatList` today; use `keyExtractor`, stable `renderItem`, and `StyleSheet.create` (no inline style objects).
 - Zustand: select what you need (`useAuthStore((s) => s.status)`), never `useAuthStore()`.
 - API calls: a function in `service/api/<domain>.api.ts` (typed with `@coach-connect/shared/types`, path from `API_ROUTES`), called through `withAuth` when logged in. Screens/hooks show failures with `showApiError`.
