@@ -104,6 +104,8 @@ model User {
   chatsCreated      Chat[]             @relation("ChatCreator")
   chatMemberships   ChatMember[]
   messagesSent      Message[]
+  callsStarted      Call[]             @relation("CallStarter")
+  callParticipations CallParticipant[]
 
   @@map("users")
 }
@@ -229,6 +231,7 @@ model Chat {
   createdBy User?        @relation("ChatCreator", fields: [createdById], references: [id], onDelete: SetNull)
   members   ChatMember[]
   messages  Message[]
+  calls     Call[]
 
   @@map("chats")
 }
@@ -269,4 +272,80 @@ model Message {
   @@unique([senderId, clientMessageId]) // makes sending idempotent
   @@unique([chatId, sequenceNumber]) // also the index behind "messages of this chat, in order"
   @@map("messages")
+}
+
+/// Where a call is in its life. The SERVER decides every change; phones only send intents (start, join, decline, leave).
+enum CallState {
+  RINGING // Created, invited people are being rung (30 s at most)
+  ACTIVE // Someone besides the starter joined: audio/video is flowing
+  ENDED // Over. calls.end_reason says why
+
+  @@map("call_state")
+}
+
+/// Why a call ended.
+enum CallEndReason {
+  COMPLETED // Was active, then everyone left (or, in a direct call, one person hung up)
+  NO_ANSWER // Nobody joined in time, or nobody who was rung is left to answer
+  DECLINED // Everyone who was rung said no
+  CANCELED // The starter hung up while it was still ringing
+  BANNED // An admin banned a participant and the call was cut
+
+  @@map("call_end_reason")
+}
+
+/// What happened to ONE person in a call.
+enum CallParticipantStatus {
+  INVITED // Rung, no answer yet
+  JOINED // Is or was in the call (left_at tells whether they are still in it)
+  DECLINED // Tapped decline
+  MISSED // Was rung and never answered before the call ended
+  BUSY // Was already in another call, so we did not ring them
+
+  @@map("call_participant_status")
+}
+
+/// One call in a chat (direct or group). The chat decides WHO may join (chat_members); this table says what happened.
+model Call {
+  id          String        @id @default(uuid(7)) @db.Uuid
+  chatId      String        @map("chat_id") @db.Uuid
+  startedById String        @map("started_by_id") @db.Uuid
+  state       CallState     @default(RINGING)
+  /// Set when state = ENDED, null before (CHECK, RAW).
+  endReason   CallEndReason? @map("end_reason")
+  /// false = voice, true = video was offered. (Everyone can still turn their camera on or off inside the call.)
+  video       Boolean       @default(false)
+  /// The LiveKit room everyone joins. Random, so it cannot be guessed.
+  roomName    String        @unique @map("room_name")
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  /// When the first invited person joined (the call became ACTIVE).
+  answeredAt  DateTime?     @map("answered_at") @db.Timestamptz(3)
+  endedAt     DateTime?     @map("ended_at") @db.Timestamptz(3)
+
+  chat         Chat              @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  startedBy    User              @relation("CallStarter", fields: [startedById], references: [id])
+  participants CallParticipant[]
+
+  @@index([chatId, createdAt(sort: Desc)], map: "calls_chat_idx")
+  @@map("calls")
+}
+
+/// One row per person per call (the starter included). Re-joining a call reuses the row (left_at goes back to null).
+model CallParticipant {
+  id        String                @id @default(uuid(7)) @db.Uuid
+  callId    String                @map("call_id") @db.Uuid
+  userId    String                @map("user_id") @db.Uuid
+  status    CallParticipantStatus @default(INVITED)
+  invitedAt DateTime              @default(now()) @map("invited_at") @db.Timestamptz(3)
+  /// First time they joined.
+  joinedAt  DateTime?             @map("joined_at") @db.Timestamptz(3)
+  /// Last time they left. null while still in the call.
+  leftAt    DateTime?             @map("left_at") @db.Timestamptz(3)
+
+  call Call @relation(fields: [callId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([callId, userId])
+  @@index([userId, invitedAt(sort: Desc)], map: "call_participants_user_idx")
+  @@map("call_participants")
 }

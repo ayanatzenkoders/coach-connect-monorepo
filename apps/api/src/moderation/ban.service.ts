@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { CallsService } from '../calls/calls.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { AppException } from '../common/errors/app.exception.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -10,6 +11,7 @@ export class BanService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly realtime: RealtimeService,
+    private readonly calls: CallsService,
   ) {}
 
   /**
@@ -56,6 +58,8 @@ export class BanService {
     // REAL-TIME: sessions are revoked, so close the banned user's open sockets now instead of leaving them
     // connected until the next reconnect. Done after the commit so a failed ban never kicks anyone.
     this.realtime.disconnectUser(targetId);
+    // CALLS: take them out of any call they are in (and out of the LiveKit room), so they stop hearing everyone at once.
+    await this.calls.removeBannedUser(targetId);
     return result;
   }
 

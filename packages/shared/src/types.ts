@@ -186,3 +186,54 @@ export interface CoachApprovalResult {
   changed: boolean;
 }
 
+
+// ───────────────────────── calls ─────────────────────────
+
+export type CallState = "RINGING" | "ACTIVE" | "ENDED";
+export type CallEndReason = "COMPLETED" | "NO_ANSWER" | "DECLINED" | "CANCELED" | "BANNED";
+/** INVITED = rung, no answer yet. JOINED = is or was in the call (leftAt says which). BUSY = was in another call. */
+export type CallParticipantStatus = "INVITED" | "JOINED" | "DECLINED" | "MISSED" | "BUSY";
+
+export interface CallParticipantInfo {
+  userId: string;
+  name: string;
+  status: CallParticipantStatus;
+  joinedAt: string | null;
+  /** Set once they left; null while they are still in the call. */
+  leftAt: string | null;
+}
+
+export interface CallInfo {
+  id: string;
+  chatId: string;
+  startedById: string;
+  startedByName: string;
+  state: CallState;
+  endReason: CallEndReason | null;
+  video: boolean;
+  createdAt: string;
+  answeredAt: string | null;
+  endedAt: string | null;
+  participants: CallParticipantInfo[];
+}
+
+/** What joining a call gives the phone: the call, and a short-lived pass to the LiveKit room. */
+export interface CallSession {
+  call: CallInfo;
+  livekit: {
+    /** The LiveKit server address (wss://...). */
+    url: string;
+    /** A JWT that is valid for a few minutes for THIS room only. The API secret never leaves the server. */
+    token: string;
+  };
+}
+
+/** Answer of starting a call. `created` is false when the chat already had a live call (you were put into it). */
+export interface StartCallResult extends CallSession {
+  created: boolean;
+}
+
+/** Answer of GET /chats/:id/call. */
+export interface ChatCall {
+  call: CallInfo | null;
+}

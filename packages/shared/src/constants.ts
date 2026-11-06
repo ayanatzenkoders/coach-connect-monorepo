@@ -42,3 +42,6 @@ export const COACH_SPECIALTIES = [
 export const COACH_MAX_SPECIALTIES = 5;
 export const COACH_BIO_MIN = 20;
 export const COACH_BIO_MAX = 600;
+
+/** How long a call rings before it counts as unanswered. The API sweeps every few seconds. */
+export const CALL_RING_SECONDS = 30;

@@ -31,6 +31,14 @@ const EnvSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
+
+  // ───── Calls (LiveKit) ─────
+  // Optional so the API still starts without them (chat, admin... keep working). Starting or joining a call then answers
+  // 503 CALLS_NOT_CONFIGURED. Get all three from your LiveKit Cloud project (Settings > Keys). The secret stays on the server.
+  /** e.g. wss://your-project.livekit.cloud */
+  LIVEKIT_URL: z.string().optional(),
+  LIVEKIT_API_KEY: z.string().optional(),
+  LIVEKIT_API_SECRET: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

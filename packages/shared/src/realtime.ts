@@ -1,7 +1,7 @@
 // Real-time (Socket.IO) contract shared by the API and the mobile app.
 // The server PUSHES these events; sending and reading still go through REST (see API_ROUTES.chat).
 // An event only says "something changed". The app can always fetch the truth over REST.
-import type { ChatMessage } from "./types";
+import type { CallInfo, ChatMessage } from "./types";
 
 export const SOCKET_EVENTS = {
   /** A message was saved in a chat I am a member of (I may be the sender, on another device). */
@@ -14,6 +14,10 @@ export const SOCKET_EVENTS = {
   chatUpdated: "chat:updated",
   /** A group I was in was deleted by its creator. */
   chatDeleted: "chat:deleted",
+  /** Someone is calling me: show the ringing screen. Sent only to people who are rung. */
+  callIncoming: "call:incoming",
+  /** A call in one of my chats changed (someone joined, left, it ended). Sent to everybody in that chat. */
+  callUpdated: "call:updated",
 } as const;
 
 export interface MessageNewPayload {
@@ -40,3 +44,11 @@ export interface ChatDeletedPayload {
   chatId: string;
 }
 
+
+export interface CallIncomingPayload {
+  call: CallInfo;
+}
+
+export interface CallUpdatedPayload {
+  call: CallInfo;
+}

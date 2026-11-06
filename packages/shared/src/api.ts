@@ -29,6 +29,21 @@ export const API_ROUTES = {
     /** POST { available } = switch "Available now" on or off. */
     availability: "/coaches/me/availability",
   },
+  /** Voice/video calls. Intents go over REST; the answers are pushed over the socket (see realtime.ts). */
+  calls: {
+    /** POST { chatId, video } = start a call in a chat (or get the one already live). */
+    start: "/calls",
+    /** POST = join (answer, join late, or come back to a call you left). Answers with the LiveKit token. */
+    join: "/calls/:id/join",
+    /** POST = "no thanks" (only while it rings). */
+    decline: "/calls/:id/decline",
+    /** POST = the starter gives up before anyone answered. */
+    cancel: "/calls/:id/cancel",
+    /** POST = leave (hang up). */
+    leave: "/calls/:id/leave",
+    /** GET = the call that is live in this chat right now, or null (drives the "Call in progress" banner). */
+    inChat: "/chats/:id/call",
+  },
   people: "/people",
   chat: {
     chats: "/chats",

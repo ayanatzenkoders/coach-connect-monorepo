@@ -10,6 +10,7 @@ import {
   RegisterCoachInputSchema,
   RegisterInputSchema,
   SendMessageInputSchema,
+  StartCallInputSchema,
   withParams,
 } from "../src";
 
@@ -129,5 +130,21 @@ describe("date of birth and coach sign-up", () => {
     expect(RegisterCoachInputSchema.safeParse({ ...coach, specialties: ["Made up topic"] }).success).toBe(false);
     expect(RegisterCoachInputSchema.safeParse({ ...coach, specialties: ["Burnout", "Salary talks", "Leadership", "Remote work", "New managers", "Interview prep"] }).success).toBe(false);
     expect(RegisterCoachInputSchema.safeParse({ ...coach, role: "ADMIN" }).success).toBe(false); // unknown fields are refused
+  });
+});
+
+describe("start call", () => {
+  const chatId = "0194f3a0-0000-7000-8000-000000000001";
+  it("needs a chat id, and voice is the default", () => {
+    expect(StartCallInputSchema.parse({ chatId })).toEqual({ chatId, video: false });
+    expect(StartCallInputSchema.parse({ chatId, video: true }).video).toBe(true);
+    expect(StartCallInputSchema.safeParse({}).success).toBe(false);
+    expect(StartCallInputSchema.safeParse({ chatId: "nope" }).success).toBe(false);
+    expect(StartCallInputSchema.safeParse({ chatId, video: "yes" }).success).toBe(false);
+    expect(StartCallInputSchema.safeParse({ chatId, calleeId: chatId }).success).toBe(false); // no extra fields
+  });
+  it("fills in :id in the call routes", () => {
+    expect(withParams(API_ROUTES.calls.join, { id: "abc" })).toBe("/calls/abc/join");
+    expect(withParams(API_ROUTES.calls.inChat, { id: "abc" })).toBe("/chats/abc/call");
   });
 });
